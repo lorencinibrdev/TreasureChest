@@ -1,35 +1,16 @@
-﻿using Adw;
+﻿using Gio;
+using TreasureChest.Source.Services;
+using TreasureChest.Source.Windows;
 using Application = Adw.Application;
-using ApplicationWindow = Adw.ApplicationWindow;
 
-namespace TreasureChest;
+var configData = ConfigurationService.LoadConfiguration();
+var app = Application.New(ConfigurationService.ApplicationId, ApplicationFlags.DefaultFlags);
 
-internal static class Program
+app.OnActivate += (sender, _) =>
 {
-    [STAThread]
-    private static void Main(string[] args)
-    {
-        // Initialize Libadwaita & GTK application
-        var app = Application.New("io.github.lorencinibrdev.TreasureChest", Gio.ApplicationFlags.FlagsNone);
+    var window = MainWindow.New((Application)sender, configData);
+    app.OnShutdown += window.HandleApplicationExit;
+    window.Present();
+};
 
-        app.OnActivate += (sender, e) =>
-        {
-            // Create Application Window
-            var window = ApplicationWindow.New((Application)sender);
-            window.SetTitle("TreasureChest");
-            window.SetDefaultSize(900, 600);
-
-            // Create a Libadwaita Status Page widget
-            var statusPage = StatusPage.New();
-            statusPage.SetTitle("TreasureChest");
-            statusPage.SetDescription("GOG Client for GNOME");
-            statusPage.SetIconName("applications-games-symbolic");
-
-            window.SetContent(statusPage);
-            window.Present();
-        };
-
-        // Run application loop
-        app.Run(args);
-    }
-}
+return app.RunWithSynchronizationContext(null);
