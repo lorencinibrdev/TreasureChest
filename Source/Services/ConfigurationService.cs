@@ -67,10 +67,33 @@ public static class ConfigurationService
         
         Console.Out.WriteLine("\tDone!");
     }
+
+    private static string SetupCacheDirectory()
+    {
+        var cacheHome = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+
+        if (string.IsNullOrEmpty(cacheHome))
+        {
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            cacheHome = Path.Combine(userProfile, ".cache");
+        }
+
+        var appCacheDir = Path.Combine(cacheHome, ApplicationId);
+
+        if (!Directory.Exists(appCacheDir))
+        {
+            Directory.CreateDirectory(appCacheDir);
+        }
+        
+        Console.Out.WriteLine($"[INFO] - Cache directory defined as '{appCacheDir}'...");
+        
+        return appCacheDir;
+    }
     
     // Properties:
     public static ConfigurationData Current { get; private set; } = new();
     public static string ApplicationId => "io.github.lorencinibrdev.TreasureChest";
+    public static string CacheDirectory { get; } = SetupCacheDirectory();
 
     // Private Properties:
     private static readonly string ConfigurationsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ApplicationId);

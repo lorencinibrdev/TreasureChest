@@ -9,6 +9,9 @@ if (!ConfigurationService.Initialize())
     throw new Exception("Failed to initialize the configuration service. This should not happen...");
 }
 
+GLib.Module.Initialize();
+GLib.Functions.SetPrgname(ConfigurationService.ApplicationId);
+
 var app = Application.New(ConfigurationService.ApplicationId, ApplicationFlags.DefaultFlags);
 
 app.OnActivate += (sender, _) =>
