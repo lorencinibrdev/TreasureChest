@@ -1,5 +1,6 @@
 using Adw;
 using Gtk;
+using TreasureChest.Source.Services;
 
 namespace TreasureChest.Source.Views;
 
@@ -16,6 +17,15 @@ public class LibraryView
         statusPage.IconName = "emblem-photos-symbolic";
 
         box.Append(statusPage);
+        
+        var button = Button.NewWithLabel("Refresh Tokens");
+        button.OnClicked += async (_, _) =>
+        {
+            await GogServices.RefreshTokens();
+        };
+
+        statusPage.SetChild(button);
+        
         return box;
     }
 }

@@ -1,11 +1,13 @@
 using Adw;
 using GObject;
 using Gtk;
+using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Views;
 using Application = Adw.Application;
 using ApplicationWindow = Adw.ApplicationWindow;
 using HeaderBar = Adw.HeaderBar;
+using Value = GObject.Value;
 
 namespace TreasureChest.Source.Windows;
 
@@ -15,31 +17,29 @@ public partial class MainWindow
     // Private Members:
     private ViewStack _viewStack = null!;
     
-    public static MainWindow New(Application app, ApplicationConfiguration configData)
+    public static MainWindow New(Application app)
     {
         var window = NewWithProperties([]);
 
         window.Application = app;
         window.Title = "Treasure Chest";
-        window.SetDefaultSize(configData.WindowWidth, configData.WindowHeight);
+        window.SetDefaultSize(ConfigurationService.Current.WindowWidth, ConfigurationService.Current.WindowHeight);
 
-        if (configData.IsFirstRun)
+        if (ConfigurationService.Current.IsFirstRun)
         {
             Console.Out.WriteLine("[INFO] - First run detected.");
-            window.SetState("first-run");
+            window.SetState(EMainWindowViews.Welcome);
+        }
+        else if (!ConfigurationService.Current.IsLoggedIn)
+        {
+            Console.Out.WriteLine("[INFO] - Not the first run, but logged out.");
+            window.SetState(EMainWindowViews.Login);
         }
         else
         {
-            if (!configData.IsLoggedIn)
-            {
-                Console.Out.WriteLine("[INFO] - Not the first run, but logged out.");
-                window.SetState("login");
-            }
-            else
-            {
-                Console.Out.WriteLine("[INFO] - Logged in.");
-                window.SetState("library");
-            }
+            Console.Out.WriteLine("[INFO] - User previously logged in. Going straight to library view...");
+            window.SetState(EMainWindowViews.Library);
+            _ = window.ValidateSessionAsync();
         }
         
         return window;
@@ -51,13 +51,13 @@ public partial class MainWindow
         _viewStack = ViewStack.New();
         
         // Create factory views with navigation callbacks
-        var firstRunPage = FirstRunView.Create(onGetStarted: () => SetState("login"));
-        var loginPage = LoginView.Create(onLoginRequested: () => SetState("library"));
+        var firstRunPage = FirstRunView.Create(onGetStarted: () => SetState(EMainWindowViews.Login));
+        var loginPage = LoginView.Create(this);
         var libraryPage = LibraryView.Create();
 
-        _viewStack.AddNamed(firstRunPage, "first-run");
-        _viewStack.AddNamed(loginPage, "login");
-        _viewStack.AddNamed(libraryPage, "library");
+        _viewStack.AddNamed(firstRunPage, nameof(EMainWindowViews.Welcome));
+        _viewStack.AddNamed(loginPage, nameof(EMainWindowViews.Login));
+        _viewStack.AddNamed(libraryPage, nameof(EMainWindowViews.Library));
 
         var mainBox = Box.New(Orientation.Vertical, 0);
         mainBox.Append(headerBar);
@@ -87,21 +87,29 @@ public partial class MainWindow
         return headerBar;
     }
 
-    private void SetState(string pageName)
+    private async Task ValidateSessionAsync()
     {
-        _viewStack.SetVisibleChildName(pageName);
+        var isSessionValid = await GogServices.RestoreSessionAsync();
+
+        if (!isSessionValid)
+        {
+            SetState(EMainWindowViews.Login);
+        }
+        else
+        {
+            await Console.Out.WriteLineAsync("[INFO] - Session valid and correctly restored.");
+        }
+    }
+
+    public void SetState(EMainWindowViews targetView)
+    {
+        _viewStack.SetVisibleChildName(targetView.ToString());
     }
     
     public void HandleApplicationExit(Gio.Application sender, EventArgs args)
     {
-        var configData = new ApplicationConfiguration
-        {
-            IsFirstRun = false,
-            IsLoggedIn = false,
-            WindowWidth = GetWidth(),
-            WindowHeight = GetHeight()
-        };
-        
-        ConfigurationService.SaveConfiguration(configData);
+        // Saving the configuration back to the service:
+        ConfigurationService.Current.WindowWidth = DefaultWidth;
+        ConfigurationService.Current.WindowHeight = DefaultHeight;
     }
 }

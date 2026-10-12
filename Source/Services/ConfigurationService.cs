@@ -1,56 +1,79 @@
 using System.Text.Json;
+using TreasureChest.Source.Helpers;
 
 namespace TreasureChest.Source.Services;
 
-public abstract class ConfigurationService
+public static class ConfigurationService
 {
-    public static ApplicationConfiguration LoadConfiguration()
+    // Private Members
+    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented =  true };
+    private static bool _isInitialized;
+    
+    public static bool Initialize()
     {
-        // If the config file does not exist, we are on the first run:
-        if (!File.Exists(ConfigurationFilePath))
+        if (File.Exists(ConfigurationFilePath))
         {
-            var newConfiguration = GenerateDefaultConfiguration();
-            return newConfiguration;
+            // Loading data from file:
+            LoadConfigurationFromJsonFile();
+        }
+        else
+        {
+            Console.Out.WriteLine("[INFO] - Configuration file not found, so assuming first execution of the program. Generating defaults...");
+            Current = new ConfigurationData();
+            SaveConfigurationToJsonFile();
         }
         
-        // Else, we are running from an already created configuration:
+        _isInitialized = true;
+        return _isInitialized;
+    }
+
+    public static void FinishExecution()
+    {
+        Current.IsFirstRun = false;
+        SaveConfigurationToJsonFile();
+    }
+
+    private static void LoadConfigurationFromJsonFile()
+    {
+        var jsonText = File.ReadAllText(ConfigurationFilePath);
+
         try
         {
-            var jsonText = File.ReadAllText(ConfigurationFilePath);
-            var configuration = JsonSerializer.Deserialize<ApplicationConfiguration>(jsonText);
-            return configuration ?? GenerateDefaultConfiguration();
+            Current = JsonSerializer.Deserialize<ConfigurationData>(jsonText, SerializerOptions) ?? throw new InvalidOperationException();
+            Console.Out.WriteLine($"[INFO] - Configuration file found on '{ConfigurationFilePath}', and loaded successfully.");
         }
-        catch
+        catch (Exception)
         {
-            return GenerateDefaultConfiguration();
+            Console.Out.WriteLine($"[WARN] - Configuration file found on '{ConfigurationFilePath}', but the same could not be parsed.");
+            Console.Out.WriteLine("[WARN] - Falling back to default configs...");
+            
+            File.Delete(ConfigurationFilePath);
+            Current = new ConfigurationData();
+            SaveConfigurationToJsonFile();
         }
     }
-
-    private static ApplicationConfiguration GenerateDefaultConfiguration()
+    
+    public static void SaveConfigurationToJsonFile()
     {
-        return new ApplicationConfiguration
+        Console.Out.Write($"[INFO] - Writing configuration data to '{ConfigurationFilePath}'...");
+        
+        if (!Directory.Exists(ConfigurationsDirectory))
         {
-            IsFirstRun = true
-        };
-    }
-
-    public static void SaveConfiguration(ApplicationConfiguration configuration)
-    {
-        configuration.IsFirstRun = false;
-        Directory.CreateDirectory(ConfigurationsDirectory);
-        var jsonText = JsonSerializer.Serialize(configuration, SerializerOptions);
-        File.WriteAllText(ConfigurationFilePath, jsonText);
+            Directory.CreateDirectory(ConfigurationsDirectory);
+        }
+        
+        var json = JsonSerializer.Serialize(Current, SerializerOptions);
+        File.WriteAllText(ConfigurationFilePath, json);
+        
+        Console.Out.WriteLine("\tDone!");
     }
     
     // Properties:
-    public static string ApplicationId { get; } = "io.github.lorencinibrdev.TreasureChest";
-    public static string ConfigurationsDirectory { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ApplicationId);
-    private static string ConfigurationFileName { get; } = "config.json";
-    private static string ConfigurationFilePath { get; } = Path.Combine(ConfigurationsDirectory, ConfigurationFileName);
+    public static ConfigurationData Current { get; private set; } = new();
+    public static string ApplicationId => "io.github.lorencinibrdev.TreasureChest";
 
-    private static JsonSerializerOptions SerializerOptions { get; } = new()
-    {
-        WriteIndented = true
-    };
+    // Private Properties:
+    private static readonly string ConfigurationsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ApplicationId);
+    private const string ConfigurationFileName = "config.json";
+    private static readonly string ConfigurationFilePath = Path.Combine(ConfigurationsDirectory, ConfigurationFileName);
 }

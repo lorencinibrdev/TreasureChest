@@ -11,9 +11,15 @@
       <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <NoWarn>$(NoWarn);CA1416</NoWarn>
+    </PropertyGroup>
+
     <ItemGroup>
       <PackageReference Include="GirCore.Adw-1" Version="0.8.1" />
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.1" />
+      <PackageReference Include="GirCore.Secret-1" Version="0.8.1" />
+      <PackageReference Include="GirCore.WebKit-6.0" Version="0.8.1" />
     </ItemGroup>
 
 </Project>
