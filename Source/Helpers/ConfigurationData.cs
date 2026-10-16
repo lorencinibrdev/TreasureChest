@@ -7,6 +7,7 @@ public class ConfigurationData
     public bool IsLoggedIn { get; set; } = false;
     public string SavedUserName { get; set; } = "";
     public string SavedUserId { get; set; } = "";
+    public string SavedUserEmail { get; set; } = "";
     public int WindowWidth { get; set; } = 800;
     public int WindowHeight { get; set; } = 600;
 }

@@ -53,7 +53,7 @@ public partial class MainWindow
         // Create factory views with navigation callbacks
         var firstRunPage = FirstRunView.Create(onGetStarted: () => SetState(EMainWindowViews.Login));
         var loginPage = LoginView.Create(this);
-        var libraryPage = LibraryView.Create();
+        var libraryPage = LibraryView.Create(this);
 
         _viewStack.AddNamed(firstRunPage, nameof(EMainWindowViews.Welcome));
         _viewStack.AddNamed(loginPage, nameof(EMainWindowViews.Login));
@@ -98,6 +98,8 @@ public partial class MainWindow
         else
         {
             await Console.Out.WriteLineAsync("[INFO] - Session valid and correctly restored.");
+            await LibraryView.RefreshNetworkLibraryDataAsync();
+            await LibraryView.MergeAndUpdateLibrary(LibraryServices.GetLoadedGames());
         }
     }
 

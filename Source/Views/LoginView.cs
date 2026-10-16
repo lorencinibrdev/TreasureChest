@@ -30,7 +30,7 @@ public class LoginView
             
             if (!string.IsNullOrEmpty(authCode))
             {
-                loginSuccess = await GogServices.ProcessLoginRequest(authCode);
+                loginSuccess = await GogServices.Login(authCode);
             }
 
             if (!loginSuccess)

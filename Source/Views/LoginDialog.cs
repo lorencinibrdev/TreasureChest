@@ -1,13 +1,12 @@
-using System.Runtime.Versioning;
 using System.Web;
 using Gtk;
+using TreasureChest.Source.Services;
 using WebKit;
 using Dialog = Adw.Dialog;
 using HeaderBar = Adw.HeaderBar;
 
 namespace TreasureChest.Source.Views;
 
-[SupportedOSPlatform("linux")]
 public class LoginDialog
 {
     // Private Members:
@@ -15,11 +14,7 @@ public class LoginDialog
     private readonly WebView _webView;
     private readonly Window _parentWindow;
     private readonly TaskCompletionSource<string?> _tcs = new();
-    private const string AuthUrl = "https://auth.gog.com/auth" +
-                                   "?client_id=46899977096215655" +
-                                   "&redirect_uri=https://embed.gog.com/on_login_success?origin=client" +
-                                   "&response_type=code" +
-                                   "&layout=client2";
+    
     public LoginDialog(Window parentWindow)
     {
         _parentWindow = parentWindow;
@@ -32,7 +27,7 @@ public class LoginDialog
         var headerBar = HeaderBar.New();
         var contentBox = Box.New(Orientation.Vertical, 0);
         contentBox.Append(headerBar);
-
+        
         _webView = WebView.New();
         _webView.Vexpand = true;
         _webView.Hexpand = true;
@@ -47,7 +42,7 @@ public class LoginDialog
 
     public async Task<string?> ShowAndAuthenticateAsync()
     {
-        _webView.LoadUri(AuthUrl);
+        _webView.LoadUri(GogServices.UrlAuth);
         _modalDialog.Present(_parentWindow);
         return await _tcs.Task;
     }
