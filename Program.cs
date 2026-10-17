@@ -11,6 +11,17 @@ if (!ConfigurationService.Initialize())
 
 GLib.Module.Initialize();
 GLib.Functions.SetPrgname(ConfigurationService.ApplicationId);
+Module.Initialize();
+
+try
+{
+    var resource = Functions.ResourceLoad("TreasureChest.gresource");
+    Functions.ResourcesRegister(resource);
+}
+catch (Exception e)
+{
+    Console.WriteLine($"Failed to load the gresouce: {e.Message}");
+}
 
 var app = Application.New(ConfigurationService.ApplicationId, ApplicationFlags.DefaultFlags);
 

@@ -7,6 +7,9 @@ namespace TreasureChest.Source.Helpers;
 [Subclass<Object>]
 public partial class GameModel
 {
+    // Private Members:
+    private SystemCompatibility _systemCompatibility;
+    
     public static GameModel New(GameDetailsResponse gameDetails)
     {
         var model = NewWithProperties([]);
@@ -15,6 +18,7 @@ public partial class GameModel
         model.Title = gameDetails.Title ?? "Unknown Title";
         model.LogoPath = gameDetails.Images?.Logo2X ?? string.Empty;
         model.IconPath = gameDetails.Images?.SideBarIcon2X ?? string.Empty;
+        model._systemCompatibility = gameDetails.SystemCompatibility ?? new SystemCompatibility();
         return model;
     }
     
@@ -24,4 +28,7 @@ public partial class GameModel
     public string Title { get; set; } = string.Empty;
     public string LogoPath { get; set; } = string.Empty;
     public string IconPath { get; set; } = string.Empty;
+    public bool SupportsWindows => _systemCompatibility.Windows ?? false;
+    public bool SupportsLinux => _systemCompatibility.Linux ?? false;
+    public bool SupportsMacOs => _systemCompatibility.MacOs ?? false;
 }

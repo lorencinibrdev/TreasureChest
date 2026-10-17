@@ -15,11 +15,25 @@
         <NoWarn>$(NoWarn);CA1416</NoWarn>
     </PropertyGroup>
 
+    <Target Name="CompileGResources" BeforeTargets="BeforeBuild">
+        <Exec Command="glib-compile-resources &quot;$(MSBuildProjectDirectory)/TreasureChest.gresource.xml&quot; --target=&quot;$(MSBuildProjectDirectory)/TreasureChest.gresource&quot;" />
+    </Target>
+
+    <ItemGroup>
+        <None Update="TreasureChest.gresource">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
     <ItemGroup>
       <PackageReference Include="GirCore.Adw-1" Version="0.8.1" />
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.1" />
       <PackageReference Include="GirCore.Secret-1" Version="0.8.1" />
       <PackageReference Include="GirCore.WebKit-6.0" Version="0.8.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="icons\" />
     </ItemGroup>
 
 </Project>

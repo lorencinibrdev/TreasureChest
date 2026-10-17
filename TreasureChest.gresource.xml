@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+    <!-- The prefix must match the App ID structure you are already using -->
+    <gresource prefix="/io/github/lorencinibrdev/TreasureChest">
+        <file>icons/windows-symbolic.svg</file>
+        <file>icons/macos-symbolic.svg</file>
+        <file>icons/linux-symbolic.svg</file>
+    </gresource>
+</gresources>

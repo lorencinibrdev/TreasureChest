@@ -27,7 +27,7 @@ public class LibraryView
         gridView.MaxColumns = 50;
         gridView.Halign = Align.Center;
 
-        gridView.OnActivate += (sender, args) =>
+        gridView.OnActivate += (_, args) =>
         {
             var clickModel = (GameModel)_store.GetObject(args.Position)!;
             
@@ -170,8 +170,23 @@ public class LibraryView
         label.Wrap = true;
         label.Justify = Justification.Center;
         
+        // Preparing the icons for the supported platforms:
+        var windowsIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/windows-symbolic.svg");
+        var linuxIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/linux-symbolic.svg");
+        var macosIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/macos-symbolic.svg");
+        windowsIcon.PixelSize = 16;
+        linuxIcon.PixelSize = 16;
+        macosIcon.PixelSize = 16;
+        
+        var platformBox = Box.New(Orientation.Horizontal, 6);
+        platformBox.Halign = Align.Center;
+        platformBox.Append(windowsIcon);
+        platformBox.Append(linuxIcon);
+        platformBox.Append(macosIcon);
+        
         mainBox.Append(imageStack);
         mainBox.Append(label);
+        mainBox.Append(platformBox);
         
         listItem.Child = mainBox;
     }
@@ -180,13 +195,24 @@ public class LibraryView
     {
         var listItem = (ListItem)args.Object;
         var game = (GameModel)listItem.Item!;
-        
         var mainBox = (Box)listItem.Child!;
+        
+        // Fetching the widgets from the layout hierarchy:
         var imageStack = (Stack)mainBox.GetFirstChild()!;
-        var label = (Label)mainBox.GetLastChild()!;
+        var label = (Label)imageStack.GetNextSibling()!;
+        var platformBox = (Box)label.GetNextSibling()!;
 
         var spinner = (Spinner)imageStack.GetFirstChild()!;
         var picture = (Picture)spinner.GetNextSibling()!;
+        
+        // Preparing the icons:
+        var windowsIcon = (Image)platformBox.GetFirstChild()!;
+        var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
+        var macosIcon = (Image)linuxIcon.GetNextSibling()!;
+
+        windowsIcon.Visible = game.SupportsWindows;
+        linuxIcon.Visible = game.SupportsLinux;
+        macosIcon.Visible = game.SupportsMacOs;
         
         label.SetText(game.Title);
         imageStack.SetVisibleChildName("spinner_page");
