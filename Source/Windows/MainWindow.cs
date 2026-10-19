@@ -78,10 +78,13 @@ public partial class MainWindow
         menuButton.SetTooltipText("Menu");
         menuButton.SetProperty("primary", new Value(true));
 
+        var librarySortAndViewControls = LibraryView.CreateViewSortControls();
+
         var searchButton = Button.NewFromIconName("edit-find-symbolic");
         menuButton.SetTooltipText("Search");
         
         headerBar.PackEnd(menuButton);
+        headerBar.PackEnd(librarySortAndViewControls);
         headerBar.PackEnd(searchButton);
 
         return headerBar;

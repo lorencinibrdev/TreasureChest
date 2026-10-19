@@ -33,4 +33,17 @@ app.OnActivate += (sender, _) =>
     window.Present();
 };
 
+// Loading some extra CSS effects:
+var cssProvider = Gtk.CssProvider.New();
+cssProvider.LoadFromString(@"
+    .grayscale { filter: grayscale(100%); }
+    .sepia { filter: sepia(100%); }
+");
+
+Gtk.StyleContext.AddProviderForDisplay(
+    Gdk.Display.GetDefault()!,
+    cssProvider,
+    800
+);
+
 return app.RunWithSynchronizationContext(null);

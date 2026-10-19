@@ -28,6 +28,7 @@ public partial class GameModel
     public string Title { get; set; } = string.Empty;
     public string LogoPath { get; set; } = string.Empty;
     public string IconPath { get; set; } = string.Empty;
+    public bool IsInstalled { get; set; } = false;
     public bool SupportsWindows => _systemCompatibility.Windows ?? false;
     public bool SupportsLinux => _systemCompatibility.Linux ?? false;
     public bool SupportsMacOs => _systemCompatibility.MacOs ?? false;
