@@ -170,6 +170,36 @@ public static class GogServices
         return true;
     }
 
+    public static async Task<object?> FetchGameContentDetails(GameDetailsResponse selectedGame)
+    {
+        if (!selectedGame.Id.HasValue)
+            return false;
+
+        var urlToCall = $"{UrlGameDetails}{selectedGame.Id.Value.ToString()}.json";
+        
+        return await CallGetApi<GameContentResponse>(urlToCall);
+    }
+    
+    public static async Task<List<GameDetailsResponse>?> FetchGameDlcContentDetails(GameDetailsResponse selectedGame)
+    {
+        if (!selectedGame.Id.HasValue 
+            || selectedGame.DlcInformation is null 
+            && selectedGame.DlcInformation is not { HasDlc: true } 
+            || string.IsNullOrWhiteSpace(selectedGame.DlcInformation.AllProductsUrl))
+        {
+            return null;
+        }
+
+        var urlToCall = selectedGame.DlcInformation.AllProductsUrl;
+        return await CallGetApi<List<GameDetailsResponse>>(urlToCall) as List<GameDetailsResponse>;
+    }
+
+    public static async Task<ProductDescriptionResponse?> FetchGameDescriptionAsync(long gameId)
+    {
+        var url = $"https://api.gog.com/products/{gameId}?expand=description";
+        return await CallGetApi<ProductDescriptionResponse>(url) as ProductDescriptionResponse;
+    }
+
     private static async Task<bool> ProcessGameList(OwnedGamesResponse gameList)
     {
         if (gameList.Games is null)
@@ -183,7 +213,7 @@ public static class GogServices
             await Console.Out.WriteAsync($"[INFO] - Fetching game details (Batch {count} of {batches.Count})...)");
             
             var idList = string.Join(",", batch);
-            var url = $"https://embed.gog.com/products?ids={idList}";
+            var url = $"https://embed.gog.com/products?ids={idList}?expand=description";
             
             var response = await HttpClient.GetAsync(url);
 
@@ -283,9 +313,9 @@ public static class GogServices
             var jsonText = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<T>(jsonText);
         }
-        catch
+        catch(Exception e)
         {
-            // ignored
+            await Console.Out.WriteLineAsync($"[ERROR] - Got exception: {e.Message}");
         }
 
         return null;
@@ -323,4 +353,5 @@ public static class GogServices
     public static string UrlTokenFetch { get; } = "https://auth.gog.com/token";
     public static string UrlUserData { get; } = "https://embed.gog.com/userData.json";
     public static string UrlGameList { get; } = "https://embed.gog.com/user/data/games";
+    public static string UrlGameDetails { get; } = "https://embed.gog.com/account/gameDetails/";
 }

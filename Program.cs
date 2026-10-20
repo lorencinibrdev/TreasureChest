@@ -38,6 +38,14 @@ var cssProvider = Gtk.CssProvider.New();
 cssProvider.LoadFromString(@"
     .grayscale { filter: grayscale(100%); }
     .sepia { filter: sepia(100%); }
+    .scrim-overlay { 
+        background-image: linear-gradient(
+            to bottom,
+            alpha(@window_bg_color, 0) 40%,
+            alpha(@window_bg_color, 0.8) 80%,
+            @window_bg_color 100%
+        );
+    }
 ");
 
 Gtk.StyleContext.AddProviderForDisplay(

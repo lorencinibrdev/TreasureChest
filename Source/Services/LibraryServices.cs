@@ -49,10 +49,23 @@ public static class LibraryServices
         try
         {
             await using var fileStream = File.OpenRead(LibraryFilePath);
-            return await JsonSerializer.DeserializeAsync<List<GameDetailsResponse>>(fileStream);
+            var loadedLibrary =  await JsonSerializer.DeserializeAsync<Dictionary<long, GameDetailsResponse>>(fileStream);
+
+            if (loadedLibrary is null)
+                return null;
+
+            foreach (var (id, game) in loadedLibrary)
+            {
+                GameEntries[id] = game;
+            }
+            
+            return [.. GameEntries.Values];
+            
         }
-        catch
+        catch(Exception e)
         {
+            await Console.Out.WriteLineAsync($"[WARN] - Could not parse the cached library file: '{LibraryFilePath}'.");
+            await Console.Out.WriteLineAsync(e.Message);
             return null;
         }
     }
