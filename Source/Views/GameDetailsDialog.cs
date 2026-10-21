@@ -211,7 +211,7 @@ public partial class GameDetailsDialog
         downloadButton.AddCssClass("flat");
         downloadButton.AddCssClass("circular");
 
-        downloadButton.OnClicked += (sender, args) =>
+        downloadButton.OnClicked += (_, _) =>
         {
             Console.Out.WriteLine($"[INFO] - Starting download for: {title}");
         };

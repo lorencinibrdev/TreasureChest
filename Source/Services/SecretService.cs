@@ -112,5 +112,5 @@ public static class SecretService
     }
 
     // Properties:
-    public static string GogSchemaName => ConfigurationService.ApplicationId + "GogAccount";
+    public static string GogSchemaName => SettingsService.ApplicationId + "GogAccount";
 }

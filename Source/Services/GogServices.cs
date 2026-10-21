@@ -13,6 +13,7 @@ public static class GogServices
     private const string RedirectUri = "https://embed.gog.com/on_login_success?origin=client";
     
     // Private Members:
+    private static readonly SettingsService Settings = new();
     private static readonly HttpClient HttpClient = new();
     private static GogTokenResponse? _tokens;
     private static GogUserDataResponse? _userData;
@@ -53,7 +54,7 @@ public static class GogServices
     public static async Task<bool> RestoreSessionAsync()
     {
         // If we are not logged in, then cannot restore session:
-        if (!ConfigurationService.Current.IsLoggedIn || string.IsNullOrEmpty(ConfigurationService.Current.SavedUserName))
+        if (string.IsNullOrEmpty(Settings.SavedUsername))
             return false;
 
         Secret.Module.Initialize();
@@ -62,9 +63,9 @@ public static class GogServices
         {
             _userData = new GogUserDataResponse
             {
-                Username = ConfigurationService.Current.SavedUserName,
-                UserId = ConfigurationService.Current.SavedUserId,
-                Email = ConfigurationService.Current.SavedUserEmail
+                Username = Settings.SavedUsername,
+                UserId = Settings.SavedUserId,
+                Email = Settings.SavedUserEmail
             };
         }
         
@@ -74,11 +75,11 @@ public static class GogServices
         {
             await Console.Out.WriteLineAsync("[ERROR] - Failed to refresh the session. User will need to login again...");
             
-            ConfigurationService.Current.IsLoggedIn = false;
-            ConfigurationService.Current.SavedUserName = string.Empty;
-            ConfigurationService.Current.SavedUserId = string.Empty;
-            ConfigurationService.Current.SavedUserEmail = string.Empty;
-            ConfigurationService.SaveConfigurationToJsonFile();
+            IsLoggedIn = false;
+            Settings.SavedUsername = string.Empty;
+            Settings.SavedUserId = string.Empty;
+            Settings.SavedUserEmail = string.Empty;
+            
             return false;
         }
 
@@ -116,16 +117,16 @@ public static class GogServices
         // Trying to fetch from secret keyring:
         await Console.Out.WriteLineAsync("[INFO] - Fetching the refresh tokens from the secret keyring...");
 
-        var userName = _userData?.Username ?? ConfigurationService.Current.SavedUserName;
+        var userName = _userData?.Username ?? Settings.SavedUsername;
         var oldRefreshToken = _tokens?.RefreshToken ?? await SecretService.GetRefreshTokenAsync(userName); 
         
         if (string.IsNullOrEmpty(oldRefreshToken))
         {
             await Console.Out.WriteLineAsync("[ERROR] - Failed to refresh the refresh token. This should not happen,and a new Login will be necessary.");
-            ConfigurationService.Current.IsLoggedIn = false;
-            ConfigurationService.Current.SavedUserName = string.Empty;
-            ConfigurationService.Current.SavedUserId = string.Empty;
-            ConfigurationService.Current.SavedUserEmail = string.Empty;
+            IsLoggedIn = false;
+            Settings.SavedUsername = string.Empty;
+            Settings.SavedUserId = string.Empty;
+            Settings.SavedUserEmail = string.Empty;
             return false;
         }
 
@@ -161,8 +162,8 @@ public static class GogServices
             return false;
         }
         
-        await Console.Out.WriteLineAsync($"[INFO] - Successfully retrieved the game list. Found {gameResponse.Games.Count} games.");
         await ProcessGameList(gameResponse);
+        await Console.Out.WriteLineAsync($"[INFO] - Successfully retrieved the game list. Found {LibraryServices.GamesCount} games.");
         
         // Saving the gamelist information on the local cache:
         await LibraryServices.SaveLibraryAsync();
@@ -229,7 +230,13 @@ public static class GogServices
 
             if (fetchedDetails is not null)
             {
-                LibraryServices.AddGames(fetchedDetails);
+                var onlyBaseGames = fetchedDetails
+                    .Where(p => p.GameType is "game" or "pack").ToList();
+
+                if (onlyBaseGames.Count > 0)
+                {
+                    LibraryServices.AddGames(onlyBaseGames);    
+                }
             }
             
             await Console.Out.WriteLineAsync("\tDone.");
@@ -252,11 +259,11 @@ public static class GogServices
         }
         
         // Saving into the configuration manager:
-        ConfigurationService.Current.SavedUserName = _userData.Username!;
-        ConfigurationService.Current.SavedUserId = _userData.UserId!;
-        ConfigurationService.Current.SavedUserEmail = _userData.Email!;
-        ConfigurationService.Current.IsLoggedIn = true;
-        ConfigurationService.SaveConfigurationToJsonFile();
+        Settings.SavedUsername = _userData.Username!;
+        Settings.SavedUserId = _userData.UserId!;
+        Settings.SavedUserEmail = _userData.Email!;
+        IsLoggedIn = true;
+        
         return true;
     }
 
@@ -349,6 +356,7 @@ public static class GogServices
     }
     
     // Properties:
+    public static bool IsLoggedIn { get; private set; }
     public static string UrlAuth { get; } = $"https://auth.gog.com/auth?client_id={ClientId}&redirect_uri={RedirectUri}&response_type=code&layout=client2";
     public static string UrlTokenFetch { get; } = "https://auth.gog.com/token";
     public static string UrlUserData { get; } = "https://embed.gog.com/userData.json";

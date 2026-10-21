@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<schemalist>
+    <schema id="io.github.lorencinibrdev.TreasureChest" path="/io/github/lorencinibrdev/TreasureChest/">
+        <!-- Path Configurations -->
+        <key name="library-folder" type="s">
+            <default>'~/.local/share/io.github.lorencinibrdev.TreasureChest/Games/GOG'</default>
+            <summary>Default directory where games are installed</summary>
+        </key>
+        <key name="downloads-folder" type="s">
+            <default>'~/.cache/io.github.lorencinibrdev.TreasureChest/downloads'</default>
+            <summary>Directory for temporary installer downloads</summary>
+        </key>
+        <key name="runtimes-folder" type="s">
+            <default>'~/.local/share/io.github.lorencinibrdev.TreasureChest/runtimes'</default>
+            <summary>Directory for Wine, Proton, and DOSBox binaries</summary>
+        </key>
+        
+        <!-- UI & Behavior Options -->
+        <key name="first-run" type="b">
+            <default>true</default>
+            <summary>Indicates if the software is running for the first time</summary>
+        </key>
+        <key name="view-mode" type="s">
+            <default>'grid'</default>
+            <summary>Preferred view mode (grid or list)</summary>
+        </key>
+        <key name="show-installed-only" type="b">
+            <default>false</default>
+            <summary>Filter library to installed games only</summary>
+        </key>
+        <key name="auto-clean-downloads" type="b">
+            <default>true</default>
+            <summary>Automatically delete installers after installation</summary>
+        </key>
+        <key name="last-window-width" type="i">
+            <default>1000</default>
+            <summary>The last saved window width</summary>
+        </key>
+        <key name="last-window-height" type="i">
+            <default>1000</default>
+            <summary>The last saved window height</summary>
+        </key>
+        
+        <!-- User Data -->
+        <key name="saved-username" type="s">
+            <default>''</default>
+            <summary>The username of the last logged in user</summary>
+        </key>
+        <key name="saved-user-id" type="s">
+            <default>''</default>
+            <summary>The ID of the last logged in user</summary>
+        </key>
+        <key name="saved-user-email" type="s">
+            <default>''</default>
+            <summary>The email of the last logged in user</summary>
+        </key>
+    </schema>
+</schemalist>

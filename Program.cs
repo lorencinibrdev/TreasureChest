@@ -1,21 +1,30 @@
-﻿using Gio;
+﻿using System.Runtime.InteropServices;
+using Gio;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Windows;
 using Application = Adw.Application;
+using File = System.IO.File;
 
-// Initializing the configuration service:
-if (!ConfigurationService.Initialize())
+// Native P/Invoke to update the C runtime environment block directly
+[DllImport("libc", EntryPoint = "setenv", CallingConvention = CallingConvention.Cdecl)]
+static extern int NativeSetEnv(string name, string value, int overwrite);
+
+// Loading the dconf schema:
+var localSchemaDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+
+if (Directory.Exists(localSchemaDir) && File.Exists(Path.Combine(localSchemaDir, "gschemas.compiled")))
 {
-    throw new Exception("Failed to initialize the configuration service. This should not happen...");
+    _ = NativeSetEnv("GSETTINGS_SCHEMA_DIR", localSchemaDir, 1);
 }
 
 GLib.Module.Initialize();
-GLib.Functions.SetPrgname(ConfigurationService.ApplicationId);
+GLib.Functions.SetPrgname(SettingsService.ApplicationId);
 Module.Initialize();
 
 try
 {
-    var resource = Functions.ResourceLoad("TreasureChest.gresource");
+    var gresourcePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "TreasureChest.gresource");
+    var resource = Functions.ResourceLoad(gresourcePath);
     Functions.ResourcesRegister(resource);
 }
 catch (Exception e)
@@ -23,13 +32,12 @@ catch (Exception e)
     Console.WriteLine($"Failed to load the gresouce: {e.Message}");
 }
 
-var app = Application.New(ConfigurationService.ApplicationId, ApplicationFlags.DefaultFlags);
+var app = Application.New(SettingsService.ApplicationId, ApplicationFlags.DefaultFlags);
 
 app.OnActivate += (sender, _) =>
 {
     var window = MainWindow.New((Application)sender);
     app.OnShutdown += window.HandleApplicationExit;
-    app.OnShutdown += (_, _) => ConfigurationService.FinishExecution();
     window.Present();
 };
 

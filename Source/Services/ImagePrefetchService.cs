@@ -126,7 +126,7 @@ public static class ImagePrefetchService
     
     private static string EnsureImageCacheDirectoryExists()
     {
-        var imageCacheDir = Path.Combine(ConfigurationService.CacheDirectory, "images", "library");
+        var imageCacheDir = Path.Combine(SettingsService.CacheDirectory, "images", "library");
         
         if (!Directory.Exists(imageCacheDir))
         {

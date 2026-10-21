@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=TreasureChest
+Comment=Native GOG Game Manager for GNOME
+Exec=TreasureChest
+Icon=io.github.lorencinibrdev.TreasureChest
+Terminal=false
+Type=Application
+Categories=Game;GTK;
+StartupWMClass=io.github.lorencinibrdev.TreasureChest

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>io.github.lorencinibrdev.TreasureChest</id>
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>GPL-3.0-or-later</project_license>
+    <name>TreasureChest</name>
+    <summary>Native GOG Game Library Manager</summary>
+
+    <description>
+        <p>
+            TreasureChest is a fast, native GTK 4 and Libadwaita desktop application for managing and launching your GOG game library.
+        </p>
+    </description>
+
+    <launchable type="desktop-id">io.github.lorencinibrdev.TreasureChest.desktop</launchable>
+    <developer_name>Anderson Lorencini</developer_name>
+</component>

@@ -15,6 +15,7 @@ namespace TreasureChest.Source.Windows;
 public partial class MainWindow
 {
     // Private Members:
+    private static readonly SettingsService Settings = new();
     private ViewStack _viewStack = null!;
     
     public static MainWindow New(Application app)
@@ -23,14 +24,14 @@ public partial class MainWindow
 
         window.Application = app;
         window.Title = "Treasure Chest";
-        window.SetDefaultSize(ConfigurationService.Current.WindowWidth, ConfigurationService.Current.WindowHeight);
+        window.SetDefaultSize(Settings.LastWindowWidth, Settings.LastWindowHeight);
 
-        if (ConfigurationService.Current.IsFirstRun)
+        if (Settings.IsFirstRun)
         {
             Console.Out.WriteLine("[INFO] - First run detected.");
             window.SetState(EMainWindowViews.Welcome);
         }
-        else if (!ConfigurationService.Current.IsLoggedIn)
+        else if (string.IsNullOrWhiteSpace(Settings.SavedUsername))
         {
             Console.Out.WriteLine("[INFO] - Not the first run, but logged out.");
             window.SetState(EMainWindowViews.Login);
@@ -114,7 +115,8 @@ public partial class MainWindow
     public void HandleApplicationExit(Gio.Application sender, EventArgs args)
     {
         // Saving the configuration back to the service:
-        ConfigurationService.Current.WindowWidth = DefaultWidth;
-        ConfigurationService.Current.WindowHeight = DefaultHeight;
+        Settings.LastWindowWidth = DefaultWidth;
+        Settings.LastWindowHeight = DefaultHeight;
+        Settings.IsFirstRun = false;
     }
 }
