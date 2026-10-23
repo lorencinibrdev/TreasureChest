@@ -7,7 +7,6 @@ public static class LibraryServices
 {
     // Private Members:
     private static readonly Dictionary<long, GameDetailsResponse> GameEntries = [];
-    private static readonly SettingsService Settings = new();
     
     public static void AddGames(List<GameDetailsResponse> games)
     {
@@ -73,7 +72,7 @@ public static class LibraryServices
     
     private static string SetupLibraryFilePath()
     {
-        var libraryFileName = $"user_library_{Settings.SavedUserId}.json";
+        var libraryFileName = $"user_library_{SettingsService.Instance.SavedUserId}.json";
         var libraryFilePath = Path.Combine(SettingsService.DataDirectory, libraryFileName);
         return libraryFilePath;
     }

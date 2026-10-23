@@ -7,6 +7,7 @@ using TreasureChest.Source.Views;
 using Application = Adw.Application;
 using ApplicationWindow = Adw.ApplicationWindow;
 using HeaderBar = Adw.HeaderBar;
+using PreferencesWindow = TreasureChest.Source.Views.PreferencesWindow;
 using Value = GObject.Value;
 
 namespace TreasureChest.Source.Windows;
@@ -15,23 +16,24 @@ namespace TreasureChest.Source.Windows;
 public partial class MainWindow
 {
     // Private Members:
-    private static readonly SettingsService Settings = new();
+    private static Application _app = null!;
     private ViewStack _viewStack = null!;
     
     public static MainWindow New(Application app)
     {
+        _app = app;
         var window = NewWithProperties([]);
 
         window.Application = app;
         window.Title = "Treasure Chest";
-        window.SetDefaultSize(Settings.LastWindowWidth, Settings.LastWindowHeight);
+        window.SetDefaultSize(SettingsService.Instance.LastWindowWidth, SettingsService.Instance.LastWindowHeight);
 
-        if (Settings.IsFirstRun)
+        if (SettingsService.Instance.IsFirstRun)
         {
             Console.Out.WriteLine("[INFO] - First run detected.");
             window.SetState(EMainWindowViews.Welcome);
         }
-        else if (string.IsNullOrWhiteSpace(Settings.SavedUsername))
+        else if (string.IsNullOrWhiteSpace(SettingsService.Instance.SavedUsername))
         {
             Console.Out.WriteLine("[INFO] - Not the first run, but logged out.");
             window.SetState(EMainWindowViews.Login);
@@ -76,8 +78,25 @@ public partial class MainWindow
         // Adding the buttons:
         var menuButton = MenuButton.New();
         menuButton.SetIconName("open-menu-symbolic");
-        menuButton.SetTooltipText("Menu");
+        menuButton.SetTooltipText("Main Menu");
         menuButton.SetProperty("primary", new Value(true));
+        
+        var menuModel = Gio.Menu.New();
+        menuModel.Append("Preferences", "win.preferences");
+        menuModel.Append("About", "win.about");
+        
+        menuButton.MenuModel = menuModel;
+        
+        var preferencesAction = Gio.SimpleAction.New("preferences", null);
+        preferencesAction.OnActivate += (_, _) =>
+        {
+            var preferencesWindow = new PreferencesWindow(this);
+            preferencesWindow.Present();
+        };
+        
+        AddAction(preferencesAction);
+        
+        _app.SetAccelsForAction("win.preferences", ["<Ctrl>comma"]);
 
         var librarySortAndViewControls = LibraryView.CreateViewSortControls();
 
@@ -115,8 +134,8 @@ public partial class MainWindow
     public void HandleApplicationExit(Gio.Application sender, EventArgs args)
     {
         // Saving the configuration back to the service:
-        Settings.LastWindowWidth = DefaultWidth;
-        Settings.LastWindowHeight = DefaultHeight;
-        Settings.IsFirstRun = false;
+        SettingsService.Instance.LastWindowWidth = DefaultWidth;
+        SettingsService.Instance.LastWindowHeight = DefaultHeight;
+        SettingsService.Instance.IsFirstRun = false;
     }
 }

@@ -13,7 +13,6 @@ public static class GogServices
     private const string RedirectUri = "https://embed.gog.com/on_login_success?origin=client";
     
     // Private Members:
-    private static readonly SettingsService Settings = new();
     private static readonly HttpClient HttpClient = new();
     private static GogTokenResponse? _tokens;
     private static GogUserDataResponse? _userData;
@@ -54,7 +53,7 @@ public static class GogServices
     public static async Task<bool> RestoreSessionAsync()
     {
         // If we are not logged in, then cannot restore session:
-        if (string.IsNullOrEmpty(Settings.SavedUsername))
+        if (string.IsNullOrEmpty(SettingsService.Instance.SavedUsername))
             return false;
 
         Secret.Module.Initialize();
@@ -63,9 +62,9 @@ public static class GogServices
         {
             _userData = new GogUserDataResponse
             {
-                Username = Settings.SavedUsername,
-                UserId = Settings.SavedUserId,
-                Email = Settings.SavedUserEmail
+                Username = SettingsService.Instance.SavedUsername,
+                UserId = SettingsService.Instance.SavedUserId,
+                Email = SettingsService.Instance.SavedUserEmail
             };
         }
         
@@ -76,9 +75,9 @@ public static class GogServices
             await Console.Out.WriteLineAsync("[ERROR] - Failed to refresh the session. User will need to login again...");
             
             IsLoggedIn = false;
-            Settings.SavedUsername = string.Empty;
-            Settings.SavedUserId = string.Empty;
-            Settings.SavedUserEmail = string.Empty;
+            SettingsService.Instance.SavedUsername = string.Empty;
+            SettingsService.Instance.SavedUserId = string.Empty;
+            SettingsService.Instance.SavedUserEmail = string.Empty;
             
             return false;
         }
@@ -117,16 +116,16 @@ public static class GogServices
         // Trying to fetch from secret keyring:
         await Console.Out.WriteLineAsync("[INFO] - Fetching the refresh tokens from the secret keyring...");
 
-        var userName = _userData?.Username ?? Settings.SavedUsername;
+        var userName = _userData?.Username ?? SettingsService.Instance.SavedUsername;
         var oldRefreshToken = _tokens?.RefreshToken ?? await SecretService.GetRefreshTokenAsync(userName); 
         
         if (string.IsNullOrEmpty(oldRefreshToken))
         {
             await Console.Out.WriteLineAsync("[ERROR] - Failed to refresh the refresh token. This should not happen,and a new Login will be necessary.");
             IsLoggedIn = false;
-            Settings.SavedUsername = string.Empty;
-            Settings.SavedUserId = string.Empty;
-            Settings.SavedUserEmail = string.Empty;
+            SettingsService.Instance.SavedUsername = string.Empty;
+            SettingsService.Instance.SavedUserId = string.Empty;
+            SettingsService.Instance.SavedUserEmail = string.Empty;
             return false;
         }
 
@@ -259,9 +258,9 @@ public static class GogServices
         }
         
         // Saving into the configuration manager:
-        Settings.SavedUsername = _userData.Username!;
-        Settings.SavedUserId = _userData.UserId!;
-        Settings.SavedUserEmail = _userData.Email!;
+        SettingsService.Instance.SavedUsername = _userData.Username!;
+        SettingsService.Instance.SavedUserId = _userData.UserId!;
+        SettingsService.Instance.SavedUserEmail = _userData.Email!;
         IsLoggedIn = true;
         
         return true;

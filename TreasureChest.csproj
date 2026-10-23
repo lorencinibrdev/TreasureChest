@@ -24,6 +24,14 @@
         <Exec Command="glib-compile-schemas data/" />
     </Target>
 
+    <!-- Automate installing the schema to the user's local schema store during build -->
+    <Target Name="InstallSchemaToUserLocal" BeforeTargets="BeforeBuild">
+        <Message Text="[MSBUILD] Syncing GSettings schema to ~/.local/share/glib-2.0/schemas/..." />
+        <Exec Command="mkdir -p ~/.local/share/glib-2.0/schemas/" />
+        <Exec Command="cp &quot;$(MSBuildProjectDirectory)/data/io.github.lorencinibrdev.TreasureChest.gschema.xml&quot; ~/.local/share/glib-2.0/schemas/" />
+        <Exec Command="glib-compile-schemas ~/.local/share/glib-2.0/schemas/" />
+    </Target>
+
     <!-- 2. Copy the compiled schema binary to bin/ output directory -->
     <ItemGroup>
         <None Include="data/gschemas.compiled" CopyToOutputDirectory="PreserveNewest" />

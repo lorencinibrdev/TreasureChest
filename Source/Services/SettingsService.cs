@@ -6,9 +6,10 @@ namespace TreasureChest.Source.Services;
 public class SettingsService
 {
     // Private Members
+    public static SettingsService Instance { get; } = new();
     private readonly Settings _settings;
 
-    public SettingsService()
+    private SettingsService()
     {
         _settings = Settings.New(ApplicationId);
         _settings.OnChanged += HandleSettingsChanged;
@@ -32,74 +33,62 @@ public class SettingsService
     }
     
     // Properties:
-    public string LibraryFolder
-    {
+    public string LibraryFolder {
         get => ResolvePath(_settings.GetString("library-folder"));
         set => _settings.SetString("library-folder", value);
     }
     
-    public string DownloadsFolder
-    {
+    public string DownloadsFolder {
         get => ResolvePath(_settings.GetString("downloads-folder"));
         set => _settings.SetString("downloads-folder", value);
     }
     
-    public string RuntimesFolder
-    {
+    public string RuntimesFolder {
         get => ResolvePath(_settings.GetString("runtimes-folder"));
         set => _settings.SetString("runtimes-folder", value);
     }
     
-    public bool IsFirstRun
-    {
+    public bool IsFirstRun {
         get => _settings.GetBoolean("first-run");
         set => _settings.SetBoolean("first-run", value);
     }
     
-    public string ViewMode
-    {
+    public string ViewMode {
         get => _settings.GetString("view-mode");
         set => _settings.SetString("view-mode", value);
     }
     
-    public bool ShowInstalledOnly
-    {
+    public bool ShowInstalledOnly {
         get => _settings.GetBoolean("show-installed-only");
         set => _settings.SetBoolean("show-installed-only", value);
     }
     
-    public bool AutoCleanDownloads
-    {
+    public bool AutoCleanDownloads {
         get => _settings.GetBoolean("auto-clean-downloads");
         set => _settings.SetBoolean("auto-clean-downloads", value);
     }
     
-    public int LastWindowWidth
-    {
+    public int LastWindowWidth {
         get => _settings.GetInt("last-window-width");
         set => _settings.SetInt("last-window-width", value);
     }
     
-    public int LastWindowHeight
-    {
+    public int LastWindowHeight {
         get => _settings.GetInt("last-window-height");
         set => _settings.SetInt("last-window-height", value);
     }
     
-    public string SavedUsername
-    {
+    public string SavedUsername {
         get => _settings.GetString("saved-username");
         set => _settings.SetString("saved-username", value);
     }
     
-    public string SavedUserId
-    {
+    public string SavedUserId {
         get => _settings.GetString("saved-user-id");
         set => _settings.SetString("saved-user-id", value);
     }
     
-    public string SavedUserEmail
-    {
+    public string SavedUserEmail {
         get => _settings.GetString("saved-user-email");
         set => _settings.SetString("saved-user-email", value);
     }
