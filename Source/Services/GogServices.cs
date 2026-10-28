@@ -13,7 +13,7 @@ public static class GogServices
     private const string RedirectUri = "https://embed.gog.com/on_login_success?origin=client";
     
     // Private Members:
-    private static readonly HttpClient HttpClient = new();
+    private static readonly HttpClient HttpClient = new(new HttpClientHandler { AllowAutoRedirect = false });
     private static GogTokenResponse? _tokens;
     private static GogUserDataResponse? _userData;
 
@@ -199,6 +199,29 @@ public static class GogServices
         var url = $"https://api.gog.com/products/{gameId}?expand=description";
         return await CallGetApi<ProductDescriptionResponse>(url) as ProductDescriptionResponse;
     }
+    
+    public static async Task<string> ResolveFinalDownloadUrlAsync(string manualUrl)
+    {
+        var requestUrl = manualUrl.StartsWith('/')
+            ? $"https://www.gog.com{manualUrl}"
+            : manualUrl;
+
+        var response = await CallGetApi(requestUrl);
+
+        if (response is null || (int)response.StatusCode is < 300 or > 399)
+            return requestUrl;
+
+        var redirectUri = response.Headers.Location;
+
+        if (redirectUri is not null)
+        {
+            return redirectUri.IsAbsoluteUri
+                ? redirectUri.ToString()
+                : $"https://www.gog.com{{redirectUri}}";
+        }
+
+        return requestUrl;
+    }
 
     private static async Task<bool> ProcessGameList(OwnedGamesResponse gameList)
     {
@@ -318,6 +341,31 @@ public static class GogServices
             
             var jsonText = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<T>(jsonText);
+        }
+        catch(Exception e)
+        {
+            await Console.Out.WriteLineAsync($"[ERROR] - Got exception: {e.Message}");
+        }
+
+        return null;
+    }
+    
+    private static async Task<HttpResponseMessage?> CallGetApi(string url)
+    {
+        if (_tokens is null || string.IsNullOrEmpty(_tokens.AccessToken))
+        {
+            await Console.Out.WriteLineAsync("[ERROR] - Stored access token is empty or null. Cannot make API call");
+            return null;
+        }
+        
+        await Console.Out.WriteLineAsync($"[INFO] - Sending GET request to {url}...");
+        
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _tokens.AccessToken);
+            var response = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            return response;
         }
         catch(Exception e)
         {

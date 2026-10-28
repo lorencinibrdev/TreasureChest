@@ -54,6 +54,10 @@ cssProvider.LoadFromString(@"
             @window_bg_color 100%
         );
     }
+    .text-fade-gradient {
+        /* Fades from transparent to the solid card background color */
+        background-image: linear-gradient(to bottom, alpha(@card_bg_color, 0), @card_bg_color);
+    }
 ");
 
 Gtk.StyleContext.AddProviderForDisplay(

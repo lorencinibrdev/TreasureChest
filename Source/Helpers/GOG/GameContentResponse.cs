@@ -52,6 +52,7 @@ public class GogDownloadPlatforms
     [JsonPropertyName("windows")] public List<GogDownloadItem>? Windows { get; init; }
     [JsonPropertyName("mac")] public List<GogDownloadItem>? Mac { get; init; }
     [JsonPropertyName("linux")] public List<GogDownloadItem>? Linux { get; init; }
+    public bool HasData => Windows is not null || Mac is not null || Linux is not null;
 }
 
 public class GogDownloadsConverter : JsonConverter<List<GogDownloadLanguage>>

@@ -2,6 +2,7 @@ using Adw;
 using GObject;
 using Gtk;
 using TreasureChest.Source.Helpers;
+using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Views;
 using Application = Adw.Application;
@@ -16,32 +17,34 @@ namespace TreasureChest.Source.Windows;
 public partial class MainWindow
 {
     // Private Members:
-    private static Application _app = null!;
-    private ViewStack _viewStack = null!;
+    private static Application _parentApplication = null!;
+    private Stack _rootStack = null!;
+    private ViewStack _mainAppViewStack = null!;
+    private HeaderBar _mainHeaderBar = null!;
     
-    public static MainWindow New(Application app)
+    public static MainWindow New(Application parentApplication)
     {
-        _app = app;
+        _parentApplication = parentApplication;
+        
         var window = NewWithProperties([]);
-
-        window.Application = app;
+        window.Application = parentApplication;
         window.Title = "Treasure Chest";
         window.SetDefaultSize(SettingsService.Instance.LastWindowWidth, SettingsService.Instance.LastWindowHeight);
+        
+        Console.Out.WriteLine($"[INFO] - Is First Run? {SettingsService.Instance.IsFirstRun}");
+        Console.Out.WriteLine($"[INFO] - Is User Logged In? {string.IsNullOrWhiteSpace(SettingsService.Instance.SavedUsername)} [{SettingsService.Instance.SavedUsername}]");
 
         if (SettingsService.Instance.IsFirstRun)
         {
-            Console.Out.WriteLine("[INFO] - First run detected.");
-            window.SetState(EMainWindowViews.Welcome);
+            window.SetRootState(EMainWindowViews.Welcome);
         }
         else if (string.IsNullOrWhiteSpace(SettingsService.Instance.SavedUsername))
         {
-            Console.Out.WriteLine("[INFO] - Not the first run, but logged out.");
-            window.SetState(EMainWindowViews.Login);
+            window.SetRootState(EMainWindowViews.Login);
         }
         else
         {
-            Console.Out.WriteLine("[INFO] - User previously logged in. Going straight to library view...");
-            window.SetState(EMainWindowViews.Library);
+            window.SetRootState(EMainWindowViews.MainApp);
             _ = window.ValidateSessionAsync();
         }
         
@@ -50,30 +53,56 @@ public partial class MainWindow
 
     partial void Initialize()
     {
-        var headerBar = CreateHeaderBar();
-        _viewStack = ViewStack.New();
+        // The root stack:
+        _rootStack = Stack.New();
+        _rootStack.TransitionType = StackTransitionType.Crossfade;
+        _rootStack.TransitionDuration = (uint)TransitionDuration;
+        
+        // The inner ViewStack (For the main window):
+        _mainAppViewStack = ViewStack.New();
+        _mainAppViewStack.Vexpand = true;
+        
+        // The tabbed pages:
+        var explorePage = Box.New(Orientation.Vertical, 0);
+        var libraryPage = LibraryView.Create(this);
+        var userPage = Box.New(Orientation.Vertical, 0);
+        
+        var exploreViewPage = _mainAppViewStack.AddTitledWithIcon(explorePage, "explore", "Explore", "explore-symbolic");
+        var libraryViewPage = _mainAppViewStack.AddTitledWithIcon(libraryPage, "library", "Library", "library-symbolic");
+        var userViewPage = _mainAppViewStack.AddTitledWithIcon(userPage, "user", "User", "person-symbolic");
+        
+        // The header bar:
+        _mainHeaderBar = CreateHeaderBar(_mainAppViewStack);
+        
+        var mainAppBox = Box.New(Orientation.Vertical, 0);
+        mainAppBox.Append(_mainHeaderBar);
+        mainAppBox.Append(_mainAppViewStack);
         
         // Create factory views with navigation callbacks
-        var firstRunPage = FirstRunView.Create(onGetStarted: () => SetState(EMainWindowViews.Login));
+        var firstRunPage = FirstRunView.Create(onGetStarted: () => SetRootState(EMainWindowViews.Login));
         var loginPage = LoginView.Create(this);
-        var libraryPage = LibraryView.Create(this);
 
-        _viewStack.AddNamed(firstRunPage, nameof(EMainWindowViews.Welcome));
-        _viewStack.AddNamed(loginPage, nameof(EMainWindowViews.Login));
-        _viewStack.AddNamed(libraryPage, nameof(EMainWindowViews.Library));
-
-        var mainBox = Box.New(Orientation.Vertical, 0);
-        mainBox.Append(headerBar);
+        _rootStack.AddNamed(firstRunPage, nameof(EMainWindowViews.Welcome));
+        _rootStack.AddNamed(loginPage, nameof(EMainWindowViews.Login));
+        _rootStack.AddNamed(mainAppBox, nameof(EMainWindowViews.MainApp));
         
-        _viewStack.Vexpand = true;
-        mainBox.Append(_viewStack);
-
-        SetContent(mainBox);
+        SetContent(_rootStack);
     }
 
-    private HeaderBar CreateHeaderBar()
+    public void SetRootState(EMainWindowViews targetView)
+    {
+        _rootStack.SetVisibleChildName(targetView.ToString());
+    }
+
+    private HeaderBar CreateHeaderBar(ViewStack targetViewStack)
     {
         var headerBar = HeaderBar.New();
+        
+        // The tabs:
+        var viewSwitcher = ViewSwitcher.New();
+        viewSwitcher.Stack = targetViewStack;
+        viewSwitcher.Policy = ViewSwitcherPolicy.Wide;
+        headerBar.TitleWidget = viewSwitcher;
         
         // Adding the buttons:
         var menuButton = MenuButton.New();
@@ -84,7 +113,6 @@ public partial class MainWindow
         var menuModel = Gio.Menu.New();
         menuModel.Append("Preferences", "win.preferences");
         menuModel.Append("About", "win.about");
-        
         menuButton.MenuModel = menuModel;
         
         var preferencesAction = Gio.SimpleAction.New("preferences", null);
@@ -96,7 +124,7 @@ public partial class MainWindow
         
         AddAction(preferencesAction);
         
-        _app.SetAccelsForAction("win.preferences", ["<Ctrl>comma"]);
+        _parentApplication.SetAccelsForAction("win.preferences", ["<Ctrl>comma"]);
 
         var librarySortAndViewControls = LibraryView.CreateViewSortControls();
 
@@ -116,7 +144,7 @@ public partial class MainWindow
 
         if (!isSessionValid)
         {
-            SetState(EMainWindowViews.Login);
+            SetRootState(EMainWindowViews.Login);
         }
         else
         {
@@ -124,11 +152,6 @@ public partial class MainWindow
             await LibraryView.RefreshNetworkLibraryDataAsync();
             await LibraryView.MergeAndUpdateLibrary(LibraryServices.GetLoadedGames());
         }
-    }
-
-    public void SetState(EMainWindowViews targetView)
-    {
-        _viewStack.SetVisibleChildName(targetView.ToString());
     }
     
     public void HandleApplicationExit(Gio.Application sender, EventArgs args)
@@ -138,4 +161,31 @@ public partial class MainWindow
         SettingsService.Instance.LastWindowHeight = DefaultHeight;
         SettingsService.Instance.IsFirstRun = false;
     }
+
+    public void ShowGameDetails(GameDetailsResponse gameDetails)
+    {
+        var gameId = $"GameDetails_{gameDetails.Id}";
+        var gameView = GameDetailsView.Create(this, gameDetails);
+        
+        _rootStack.AddNamed(gameView, gameId);
+        _rootStack.SetVisibleChildName(gameId);
+    }
+
+    public async void NavigateBackToLibrary()
+    {
+        var activeGameView = _rootStack.GetVisibleChild();
+        SetRootState(EMainWindowViews.MainApp);
+        
+        await Task.Delay(TransitionDurationExtended);
+
+        if (activeGameView is null || activeGameView == _rootStack.GetVisibleChild()) 
+            return;
+        
+        _rootStack.Remove(activeGameView);
+        activeGameView.Dispose();
+    }
+    
+    // Properties:
+    private static int TransitionDuration => 300;
+    private static int TransitionDurationExtended => TransitionDuration + 50;
 }

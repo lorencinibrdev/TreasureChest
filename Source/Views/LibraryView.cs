@@ -2,6 +2,7 @@ using Gtk;
 using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
+using TreasureChest.Source.Windows;
 using File = System.IO.File;
 using Task = System.Threading.Tasks.Task;
 
@@ -10,7 +11,7 @@ namespace TreasureChest.Source.Views;
 public class LibraryView
 {
     // Private Members:
-    private static Window _parentWindow = null!;
+    private static MainWindow _parentWindow = null!;
     private static Gio.ListStore _store = null!;
     private static Stack _mainStack = null!;
     private static Stack _viewTypeStack = null!;
@@ -21,7 +22,7 @@ public class LibraryView
     private static bool _sortAscending = true;
     private static bool _showOnlyInstalled;
     
-    public static Widget Create(Window parentWindow)
+    public static Widget Create(MainWindow parentWindow)
     {
         _parentWindow = parentWindow;
         _store = Gio.ListStore.New(GameModel.GetGType());
@@ -102,9 +103,8 @@ public class LibraryView
 
         if (fullGameDetails is null) 
             return;
-            
-        var dialog = new GameDetailsDialog(_parentWindow, fullGameDetails);
-        dialog.Present();
+        
+        _parentWindow.ShowGameDetails(fullGameDetails);
     }
 
     public static Widget CreateViewSortControls()

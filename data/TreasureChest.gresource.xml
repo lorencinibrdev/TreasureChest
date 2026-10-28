@@ -5,5 +5,7 @@
         <file>icons/windows-symbolic.svg</file>
         <file>icons/macos-symbolic.svg</file>
         <file>icons/linux-symbolic.svg</file>
+        <file>icons/library-symbolic.svg</file>
+        <file>icons/person-symbolic.svg</file>
     </gresource>
 </gresources>

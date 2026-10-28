@@ -11,7 +11,7 @@ public class DownloadQueueService
 
     private DownloadQueueService()
     {
-        _httpClient = new HttpClient()
+        _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromHours(2)
         };
@@ -26,7 +26,7 @@ public class DownloadQueueService
             Directory.CreateDirectory(targetDir);
         }
 
-        var task = new DownloadTask()
+        var task = new DownloadTask
         {
             Title = title,
             DownloadUrl = url,

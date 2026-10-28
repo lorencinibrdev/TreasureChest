@@ -4,5 +4,5 @@ public enum EMainWindowViews
 {
     Welcome,
     Login,
-    Library
+    MainApp
 }

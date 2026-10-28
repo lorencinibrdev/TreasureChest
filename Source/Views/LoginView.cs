@@ -39,7 +39,7 @@ public class LoginView
             }
             else
             {
-                parentWindow.SetState(EMainWindowViews.Library);
+                parentWindow.SetRootState(EMainWindowViews.MainApp);
             }
         };
 
