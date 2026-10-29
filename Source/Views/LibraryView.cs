@@ -298,37 +298,28 @@ public class LibraryView
         mainBox.MarginStart = 16;
         mainBox.MarginEnd = 16;
         
-        // This is the stack for each individual game widget:
-        var imageStack = Stack.New();
-        imageStack.TransitionType = StackTransitionType.Crossfade;
-        imageStack.SetSizeRequest(200, 120);
-        imageStack.Vexpand = true;
-        
-        var spinner = Spinner.New();
-        spinner.Valign = Align.Center;
-        spinner.Halign = Align.Center;
-        
         var picture = Picture.New();
         picture.Vexpand = true;
-        picture.ContentFit = ContentFit.Contain;
+        picture.ContentFit = ContentFit.Cover;
+        picture.SetSizeRequest(200, 120);
 
-        imageStack.AddNamed(spinner, "spinner_page");
-        imageStack.AddNamed(picture, "image_page");
+        var imageOverlay = Overlay.New();
+        imageOverlay.Child = picture;
         
         var label = Label.New(null);
         label.Wrap = true;
         label.Justify = Justification.Center;
         
         // Preparing the icons for the supported platforms:
-        var icons = LoadPlatformIcons();
+        var (windowsIcon, linuxIcon, macOsIcon) = LoadPlatformIcons();
         
         var platformBox = Box.New(Orientation.Horizontal, 6);
         platformBox.Halign = Align.Center;
-        platformBox.Append(icons.WindowsIcon);
-        platformBox.Append(icons.LinuxIcon);
-        platformBox.Append(icons.MacOsIcon);
+        platformBox.Append(windowsIcon);
+        platformBox.Append(linuxIcon);
+        platformBox.Append(macOsIcon);
         
-        mainBox.Append(imageStack);
+        mainBox.Append(imageOverlay);
         mainBox.Append(label);
         mainBox.Append(platformBox);
         
@@ -342,12 +333,10 @@ public class LibraryView
         var mainBox = (Box)listItem.Child!;
         
         // Fetching the widgets from the layout hierarchy:
-        var imageStack = (Stack)mainBox.GetFirstChild()!;
-        var label = (Label)imageStack.GetNextSibling()!;
+        var imageOverlay = (Overlay)mainBox.GetFirstChild()!;
+        var label = (Label)imageOverlay.GetNextSibling()!;
         var platformBox = (Box)label.GetNextSibling()!;
-
-        var spinner = (Spinner)imageStack.GetFirstChild()!;
-        var picture = (Picture)spinner.GetNextSibling()!;
+        var picture = (Picture)imageOverlay.GetFirstChild()!;
         
         // Preparing the icons:
         var windowsIcon = (Image)platformBox.GetFirstChild()!;
@@ -359,10 +348,28 @@ public class LibraryView
         macosIcon.Visible = game.SupportsMacOs;
         
         label.SetText(game.Title);
-        imageStack.SetVisibleChildName("spinner_page");
-        spinner.Start();
-
         picture.SetFile(null);
+        
+        if (!game.IsInstalled)
+        {
+            picture.Opacity = 0.5;
+            
+            var badgeButton = Button.NewFromIconName("folder-download-symbolic");
+            badgeButton.Valign = Align.Start;
+            badgeButton.Halign = Align.End;
+            badgeButton.MarginTop = 8;
+            badgeButton.MarginEnd = 8;
+            badgeButton.AddCssClass("osd");
+            badgeButton.AddCssClass("circular");
+            badgeButton.CanTarget = false;
+            badgeButton.CanFocus = false;
+
+            imageOverlay.AddOverlay(badgeButton);
+        }
+        else
+        {
+            picture.Opacity = 1;
+        }
 
         var localImagePath = await ImagePrefetchService.FetchImageWithPriorityAsync(game.Id.ToString(), EImageType.Logo2X, game.LogoPath);
 
@@ -373,9 +380,6 @@ public class LibraryView
         {
             picture.SetFilename(localImagePath);
         }
-            
-        imageStack.SetVisibleChildName("image_page");
-        spinner.Stop();
     }
 
     private static ListView CreateListView(SelectionModel selectionModel)
@@ -414,6 +418,9 @@ public class LibraryView
         label.Hexpand = true;
         label.Ellipsize = Pango.EllipsizeMode.End;
         
+        var downloadIcon = Image.NewFromIconName("folder-download-symbolic");
+        downloadIcon.AddCssClass("dim-label");
+        
         // Preparing the icons for the supported platforms:
         var icons = LoadPlatformIcons();
         
@@ -422,6 +429,7 @@ public class LibraryView
         platformBox.Append(icons.WindowsIcon);
         platformBox.Append(icons.LinuxIcon);
         platformBox.Append(icons.MacOsIcon);
+        platformBox.Append(downloadIcon);
         
         rowBox.Append(picture);
         rowBox.Append(label);
@@ -443,6 +451,7 @@ public class LibraryView
         var windowsIcon = (Image)platformBox.GetFirstChild()!;
         var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
         var macosIcon = (Image)linuxIcon.GetNextSibling()!;
+        var downloadIcon = (Image)macosIcon.GetNextSibling()!;
 
         windowsIcon.Visible = game.SupportsWindows;
         linuxIcon.Visible = game.SupportsLinux;
@@ -453,7 +462,13 @@ public class LibraryView
 
         if (!game.IsInstalled)
         {
-            picture.AddCssClass("grayscale");
+            picture.Opacity = 0.5;
+            downloadIcon.Visible = true;
+        }
+        else
+        {
+            picture.Opacity = 1;
+            downloadIcon.Visible = false;
         }
 
         var localImagePath = await ImagePrefetchService.FetchImageWithPriorityAsync(game.Id.ToString(), EImageType.SidebarIcon2X, game.IconPath);
