@@ -1,5 +1,5 @@
 using Gio;
-using TreasureChest.Source.Helpers;
+using TreasureChest.Source.Helpers.GOG;
 
 namespace TreasureChest.Source.Services;
 
@@ -58,6 +58,19 @@ public class SettingsService
         set => _settings.SetString("view-mode", value);
     }
     
+    public EMainWindowTabs StartupDefaultView
+    {
+        get
+        {
+            var stringValue = _settings.GetString("startup-default-view");
+
+            return Enum.TryParse<EMainWindowTabs>(stringValue, true, out var result) 
+                ? result 
+                : EMainWindowTabs.Library;
+        }
+        set => _settings.SetString("startup-default-view", value.ToString().ToLower());
+    }
+
     public bool ShowInstalledOnly {
         get => _settings.GetBoolean("show-installed-only");
         set => _settings.SetBoolean("show-installed-only", value);
@@ -138,7 +151,6 @@ public class SettingsService
     }
     
     // Properties:
-    public static ConfigurationData Current { get; private set; } = new();
     public static string ApplicationId => "io.github.lorencinibrdev.TreasureChest";
     public static string CacheDirectory { get; } = SetupCacheDirectory();
     public static string DataDirectory { get; } = SetupDataDirectory();

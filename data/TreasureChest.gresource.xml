@@ -8,5 +8,6 @@
         <file>icons/library-symbolic.svg</file>
         <file>icons/person-symbolic.svg</file>
         <file>icons/explore-symbolic.svg</file>
+        <file>icons/ui-symbolic.svg</file>
     </gresource>
 </gresources>

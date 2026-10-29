@@ -24,6 +24,15 @@
             <default>'grid'</default>
             <summary>Preferred view mode (grid or list)</summary>
         </key>
+        <key name="startup-default-view" type="s">
+            <choices>
+                <choice value="explore"/>
+                <choice value="library"/>
+                <choice value="user"/>
+            </choices>
+            <default>'library'</default>
+            <summary>Preferred tab to show when starting the application</summary>
+        </key>
         <key name="show-installed-only" type="b">
             <default>false</default>
             <summary>Filter library to installed games only</summary>
