@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Adw;
 using Gtk;
 using TreasureChest.Source.Helpers.GOG;
@@ -186,6 +187,11 @@ public class PreferencesWindow
         folderButton.Valign = Align.Center;
         folderButton.AddCssClass("flat");
         folderButton.TooltipText = "Select Folder";
+        
+        var openInFileManagerButton = Button.NewFromIconName("external-link-symbolic");
+        openInFileManagerButton.Valign = Align.Center;
+        openInFileManagerButton.AddCssClass("flat");
+        openInFileManagerButton.TooltipText = "Open in File Manager";
 
         folderButton.OnClicked += async (_, _) =>
         {
@@ -213,7 +219,19 @@ public class PreferencesWindow
             }
         };
         
+        openInFileManagerButton.OnClicked += (_, _) =>
+        {
+            var pathToOpen = row.Subtitle;
+
+            if (string.IsNullOrWhiteSpace(pathToOpen))
+                return;
+            
+            Directory.CreateDirectory(pathToOpen);
+            Process.Start("xdg-open", pathToOpen);
+        };
+        
         row.AddSuffix(folderButton);
+        row.AddSuffix(openInFileManagerButton);
         row.ActivatableWidget = folderButton;
         return row;
     }
