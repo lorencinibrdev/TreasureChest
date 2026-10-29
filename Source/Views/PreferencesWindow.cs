@@ -1,5 +1,6 @@
 using Adw;
 using Gtk;
+using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.Runners;
 using Spinner = Gtk.Spinner;
@@ -22,9 +23,11 @@ public class PreferencesWindow
         _window.DefaultHeight = 600;
         
         var generalPage = PrepareGeneralPage();
+        var uiPage = PrepareUiPage();
         var runnersPage = PrepareRunnersPage();
         
         _window.Add(generalPage);
+        _window.Add(uiPage);
         _window.Add(runnersPage);
     }
 
@@ -80,6 +83,45 @@ public class PreferencesWindow
         // Adding the groups to the page, and returning:
         page.Add(storageGroup);
         page.Add(downloadsGroup);
+        return page;
+    }
+    
+    private PreferencesPage PrepareUiPage()
+    {
+        // The page itself:
+        var page = PreferencesPage.New();
+        page.IconName = "ui-symbolic";
+        page.Title = "User Interface";
+
+        // The general group:
+        var generalGroup = PreferencesGroup.New();
+        generalGroup.Title = "General";
+        generalGroup.Description = "General configuration that affect the whole application.";
+
+        // Each setting row:
+        var defaultViewRow = ComboRow.New();
+        defaultViewRow.Title = "Startup View";
+        defaultViewRow.Subtitle = "The default tab opened when the app starts";
+
+        var stringList = StringList.New(Enum.GetNames<EMainWindowTabs>());
+        defaultViewRow.Model = stringList;
+
+        defaultViewRow.Selected = (uint)SettingsService.Instance.StartupDefaultView;
+
+        defaultViewRow.OnNotify += (_, args) =>
+        {
+            if (args.Pspec.GetName() != "selected") 
+                return;
+            
+            var selectedIndex = defaultViewRow.Selected;
+            SettingsService.Instance.StartupDefaultView = (EMainWindowTabs)selectedIndex;
+        };
+        
+        // Adding the rows:
+        generalGroup.Add(defaultViewRow);
+        
+        // Adding the groups to the page, and returning:
+        page.Add(generalGroup);
         return page;
     }
     
@@ -250,7 +292,7 @@ public class PreferencesWindow
         return row;
     }
 
-    private string GetDownloadUrlForRunner(ERunnerType runnerType)
+    private static string GetDownloadUrlForRunner(ERunnerType runnerType)
     {
         const string baseUrl = "https://github.com/lorencinibrdev/TreasureChest/releases/download/runtimes-v1";
         

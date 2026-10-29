@@ -67,9 +67,16 @@ public partial class MainWindow
         var libraryPage = LibraryView.Create(this);
         var userPage = Box.New(Orientation.Vertical, 0);
         
-        var exploreViewPage = _mainAppViewStack.AddTitledWithIcon(explorePage, "explore", "Explore", "explore-symbolic");
-        var libraryViewPage = _mainAppViewStack.AddTitledWithIcon(libraryPage, "library", "Library", "library-symbolic");
-        var userViewPage = _mainAppViewStack.AddTitledWithIcon(userPage, "user", "User", "person-symbolic");
+        var exploreViewPage = _mainAppViewStack.AddTitledWithIcon(explorePage, nameof(EMainWindowTabs.Explore).ToLower(), nameof(EMainWindowTabs.Explore), "explore-symbolic");
+        var libraryViewPage = _mainAppViewStack.AddTitledWithIcon(libraryPage, nameof(EMainWindowTabs.Library).ToLower(), nameof(EMainWindowTabs.Library), "library-symbolic");
+        var userViewPage = _mainAppViewStack.AddTitledWithIcon(userPage, nameof(EMainWindowTabs.User).ToLower(), nameof(EMainWindowTabs.User), "person-symbolic");
+
+        var targetView = SettingsService.Instance.StartupDefaultView.ToString().ToLower();
+
+        if (_mainAppViewStack.GetChildByName(targetView) is not null)
+        {
+            _mainAppViewStack.SetVisibleChildName(targetView);
+        }
         
         // The header bar:
         _mainHeaderBar = CreateHeaderBar(_mainAppViewStack);
