@@ -7,5 +7,6 @@
         <file>icons/linux-symbolic.svg</file>
         <file>icons/library-symbolic.svg</file>
         <file>icons/person-symbolic.svg</file>
+        <file>icons/explore-symbolic.svg</file>
     </gresource>
 </gresources>

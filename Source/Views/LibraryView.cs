@@ -363,11 +363,6 @@ public class LibraryView
         spinner.Start();
 
         picture.SetFile(null);
-        
-        if (!game.IsInstalled)
-        {
-            picture.AddCssClass("grayscale");
-        }
 
         var localImagePath = await ImagePrefetchService.FetchImageWithPriorityAsync(game.Id.ToString(), EImageType.Logo2X, game.LogoPath);
 
