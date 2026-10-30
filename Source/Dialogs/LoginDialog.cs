@@ -5,7 +5,7 @@ using WebKit;
 using Dialog = Adw.Dialog;
 using HeaderBar = Adw.HeaderBar;
 
-namespace TreasureChest.Source.Views;
+namespace TreasureChest.Source.Dialogs;
 
 public class LoginDialog
 {

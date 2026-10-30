@@ -1,15 +1,15 @@
 using System.Text.RegularExpressions;
 using Adw;
 using Gtk;
+using TreasureChest.Source.Dialogs;
 using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
-using TreasureChest.Source.Windows;
 using HeaderBar = Adw.HeaderBar;
 using Spinner = Gtk.Spinner;
 
 namespace TreasureChest.Source.Views;
 
-public partial class GameDetailsView
+public partial class GameDetailsView : IView
 {
     // Private Members:
     private readonly MainWindow _parentWindow;
@@ -27,7 +27,7 @@ public partial class GameDetailsView
 
     private string _fullGameDescription = string.Empty;
 
-    private GameDetailsView(MainWindow parentWindow, GameDetailsResponse gameDetails)
+    public GameDetailsView(MainWindow parentWindow, GameDetailsResponse gameDetails)
     {
         _parentWindow = parentWindow;
         _gameDetails = gameDetails;
@@ -182,12 +182,6 @@ public partial class GameDetailsView
     private void OpenFullDescriptionModal(string fullDescription)
     {
         var test = 09;
-    }
-
-    public static Widget Create(MainWindow parentWindow, GameDetailsResponse gameDetails)
-    {
-        var view = new GameDetailsView(parentWindow, gameDetails);
-        return view._rootOverlay;
     }
     
     private async Task LoadImagesAsync(GameDetailsResponse selectedGame, Picture bgPicture)
@@ -386,6 +380,10 @@ public partial class GameDetailsView
 
         return cleaned.Trim();
     }
+    
+    // Properties:
+    public string Identifier => "GameDetailsView";
+    public Widget RootWidget => _rootOverlay;
 
     // Some pre-compiled regexes, for performance:
     [GeneratedRegex(@"<br\s*/?>", RegexOptions.IgnoreCase)] private static partial Regex RegexHtmlBr();

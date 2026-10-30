@@ -7,16 +7,16 @@ using TreasureChest.Source.Services.Runners;
 using Spinner = Gtk.Spinner;
 using Window = Gtk.Window;
 
-namespace TreasureChest.Source.Views;
+namespace TreasureChest.Source.Dialogs;
 
-public class PreferencesWindow
+public class PreferencesDialog
 {
     // Private Members:
-    private readonly Adw.PreferencesWindow _window;
+    private readonly PreferencesWindow _window;
 
-    public PreferencesWindow(Window parentWindow)
+    public PreferencesDialog(Window parentWindow)
     {
-        _window = Adw.PreferencesWindow.New();
+        _window = PreferencesWindow.New();
         _window.TransientFor = parentWindow;
         _window.Title = "Preferences";
         _window.Modal = true;

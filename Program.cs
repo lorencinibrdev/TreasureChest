@@ -1,13 +1,9 @@
 ﻿using System.Runtime.InteropServices;
 using Gio;
 using TreasureChest.Source.Services;
-using TreasureChest.Source.Windows;
 using Application = Adw.Application;
 using File = System.IO.File;
-
-// Native P/Invoke to update the C runtime environment block directly
-[DllImport("libc", EntryPoint = "setenv", CallingConvention = CallingConvention.Cdecl)]
-static extern int NativeSetEnv(string name, string value, int overwrite);
+using MainWindow = TreasureChest.Source.MainWindow;
 
 // Loading the dconf schema:
 var localSchemaDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
@@ -67,3 +63,7 @@ Gtk.StyleContext.AddProviderForDisplay(
 );
 
 return app.RunWithSynchronizationContext(null);
+
+// Native P/Invoke to update the C runtime environment block directly
+[DllImport("libc", EntryPoint = "setenv", CallingConvention = CallingConvention.Cdecl)]
+static extern int NativeSetEnv(string name, string value, int overwrite);
