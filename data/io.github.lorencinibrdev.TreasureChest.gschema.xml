@@ -21,6 +21,10 @@
             <summary>Indicates if the software is running for the first time</summary>
         </key>
         <key name="view-mode" type="s">
+            <choices>
+                <choice value="grid"/>
+                <choice value="list"/>
+            </choices>
             <default>'grid'</default>
             <summary>Preferred view mode (grid or list)</summary>
         </key>

@@ -1,21 +1,24 @@
 using Adw;
 using Gtk;
+using TreasureChest.Source.Dialogs;
 using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services;
-using TreasureChest.Source.Windows;
 
 namespace TreasureChest.Source.Views;
 
-public class LoginView
+public class LoginView : IView
 {
-    public static StatusPage Create(MainWindow parentWindow)
+    // Private Members:
+    private readonly StatusPage _statusPage;
+    
+    public LoginView(MainWindow parentWindow)
     {
         WebKit.Module.Initialize();
         
-        var statusPage = StatusPage.New();
-        statusPage.Title = "Connect Your GOG Account";
-        statusPage.Description = "Sign in to sync your library and manage your games.";
-        statusPage.IconName = "avatar-default-symbolic";
+        _statusPage = StatusPage.New();
+        _statusPage.Title = "Connect Your GOG Account";
+        _statusPage.Description = "Sign in to sync your library and manage your games.";
+        _statusPage.IconName = "avatar-default-symbolic";
 
         var button = Button.NewWithLabel("Log In to GOG");
         button.AddCssClass("suggested-action");
@@ -43,8 +46,10 @@ public class LoginView
             }
         };
 
-        statusPage.SetChild(button);
-
-        return statusPage;
+        _statusPage.SetChild(button);
     }
+
+    // Properties:
+    public string Identifier => "LoginView";
+    public Widget RootWidget => _statusPage;
 }

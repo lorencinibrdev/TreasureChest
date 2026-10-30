@@ -4,22 +4,27 @@ using Gtk;
 
 namespace TreasureChest.Source.Views;
 
-public static class FirstRunView
+public class FirstRunView : IView
 {
-    public static StatusPage Create(Action onGetStarted)
+    // Private Members:
+    private readonly StatusPage _statusPage;
+
+    public FirstRunView(Action onGetStarted)
     {
-        var statusPage = StatusPage.New();
-        statusPage.Title = "Welcome to the application!";
-        statusPage.Description = "You one stop GOG download and installer!";
-        statusPage.IconName = "applications-games-symbolic";
+        _statusPage = StatusPage.New();
+        _statusPage.Title = "Welcome to the application!";
+        _statusPage.Description = "You one stop GOG download and installer!";
+        _statusPage.IconName = "applications-games-symbolic";
 
         var button = Button.NewWithLabel("Get Started");
         button.AddCssClass("suggested-action");
         button.AddCssClass("pill");
         button.OnClicked += (_, _) => onGetStarted();
         
-        statusPage.SetChild(button);
-
-        return statusPage;
+        _statusPage.SetChild(button);
     }
+
+    // Properties:
+    public string Identifier => "FirstRunView";
+    public Widget RootWidget => _statusPage;
 }

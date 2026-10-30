@@ -2,27 +2,25 @@ using Gtk;
 using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
-using TreasureChest.Source.Windows;
 using File = System.IO.File;
 using Task = System.Threading.Tasks.Task;
 
 namespace TreasureChest.Source.Views;
 
-public class LibraryView
+public class LibraryView : IView
 {
     // Private Members:
-    private static MainWindow _parentWindow = null!;
-    private static Gio.ListStore _store = null!;
-    private static Stack _mainStack = null!;
-    private static Stack _viewTypeStack = null!;
-    private static FilterListModel _filterModel = null!;
-    private static SortListModel _sortModel = null!;
-    private static CustomSorter _sorter = null!;
-    private static CustomFilter _filter = null!;
-    private static bool _sortAscending = true;
-    private static bool _showOnlyInstalled;
-    
-    public static Widget Create(MainWindow parentWindow)
+    private readonly MainWindow _parentWindow;
+    private readonly Gio.ListStore _store;
+    private readonly Stack _mainStack;
+    private readonly Stack _viewTypeStack;
+    private readonly SortListModel _sortModel;
+    private readonly CustomSorter _sorter;
+    private readonly CustomFilter _filter;
+    private bool _sortAscending = true;
+    private bool _showOnlyInstalled;
+
+    public LibraryView(MainWindow parentWindow)
     {
         _parentWindow = parentWindow;
         _store = Gio.ListStore.New(GameModel.GetGType());
@@ -33,7 +31,7 @@ public class LibraryView
             return !_showOnlyInstalled || game.IsInstalled;
         });
         
-        _filterModel = FilterListModel.New(_store, _filter);
+        var filterModel = FilterListModel.New(_store, _filter);
 
         _sorter = CustomSorter.New<GameModel>((a, b) =>
         {
@@ -41,7 +39,7 @@ public class LibraryView
             return _sortAscending ? comparison : -comparison;
         });
 
-        _sortModel = SortListModel.New(_filterModel, _sorter);
+        _sortModel = SortListModel.New(filterModel, _sorter);
 
         var selectionModel = SingleSelection.New(_sortModel);
         selectionModel.Autoselect = false;
@@ -66,9 +64,10 @@ public class LibraryView
         _viewTypeStack.Vexpand = true;
         _viewTypeStack.Hexpand = true;
         
-        _viewTypeStack.AddNamed(gridScrolled, "grid_view");
-        _viewTypeStack.AddNamed(listScrolled, "list_view");
-        _viewTypeStack.SetVisibleChildName("grid_view");
+        _viewTypeStack.AddNamed(gridScrolled, nameof(ELibraryViewMode.Grid).ToLower());
+        _viewTypeStack.AddNamed(listScrolled, nameof(ELibraryViewMode.List).ToLower());
+        
+        SetViewMode(SettingsService.Instance.ViewMode);
         
         // Creating the stack, for the loading animation:
         var spinner = Spinner.New();
@@ -93,11 +92,9 @@ public class LibraryView
         _mainStack.SetVisibleChildName("loading_page");
         
         _ = LoadCachedLibraryDataAsync();
-        
-        return _mainStack;
     }
     
-    private static void ShowGameDetailsModalDialog(GameModel game)
+    private void ShowGameDetailsModalDialog(GameModel game)
     {
         var fullGameDetails = LibraryServices.GetGameDetails(game.Id);
 
@@ -107,20 +104,40 @@ public class LibraryView
         _parentWindow.ShowGameDetails(fullGameDetails);
     }
 
-    public static Widget CreateViewSortControls()
+    public Widget CreateViewSortControls()
     {
         var splitButton = Adw.SplitButton.New();
         splitButton.IconName = "view-list-symbolic";
         splitButton.TooltipText = "List View";
         splitButton.AddCssClass("flat");
 
-        var isListView = false;
-        splitButton.OnClicked += (sender, args) =>
+        splitButton.OnClicked += (_, _) =>
         {
-            isListView = !isListView;
-            splitButton.IconName = isListView ? "view-grid-symbolic" : "view-list-symbolic";
-            splitButton.TooltipText = isListView ? "Grid View" : "List View";
-            SetViewMode(isListView);
+            if (!Enum.TryParse<ELibraryViewMode>(_viewTypeStack.GetVisibleChildName(), true, out var currentViewMode))
+                return;
+
+            var targetViewMode = currentViewMode switch
+            {
+                ELibraryViewMode.Grid => ELibraryViewMode.List,
+                ELibraryViewMode.List => ELibraryViewMode.Grid,
+                _ => throw new ArgumentOutOfRangeException()
+            };
+
+            switch (targetViewMode)
+            {
+                case ELibraryViewMode.Grid:
+                    splitButton.IconName = "view-list-symbolic";
+                    splitButton.TooltipText = "List View";
+                    break;
+                case ELibraryViewMode.List:
+                    splitButton.IconName = "view-grid-symbolic";
+                    splitButton.TooltipText = "Grid View";
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+            
+            SetViewMode(targetViewMode);
         };
 
         var sortPopover = Popover.New();
@@ -178,7 +195,7 @@ public class LibraryView
         return splitButton;
     }
 
-    private static async Task LoadCachedLibraryDataAsync()
+    private async Task LoadCachedLibraryDataAsync()
     {
         var cachedGames = await LibraryServices.LoadLibraryFromCacheAsync();
 
@@ -189,7 +206,7 @@ public class LibraryView
         }
     }
 
-    public static async Task RefreshNetworkLibraryDataAsync()
+    public async Task RefreshNetworkLibraryDataAsync()
     {
         if (!await GogServices.RefreshGameList())
             return;
@@ -199,7 +216,7 @@ public class LibraryView
         _ = ImagePrefetchService.PrefetchLibraryImagesAsync(liveGames);
     }
 
-    public static async Task MergeAndUpdateLibrary(IReadOnlyList<GameDetailsResponse> gameDetails)
+    public async Task MergeAndUpdateLibrary(IReadOnlyList<GameDetailsResponse> gameDetails)
     {
         await Console.Out.WriteLineAsync("[INFO] - Fetched a new game list from servers. Merging the diffs...");
         
@@ -236,7 +253,7 @@ public class LibraryView
         _mainStack.SetVisibleChildName("grid_page");
     }
 
-    private static bool AddGame(GameDetailsResponse gameDetails)
+    private bool AddGame(GameDetailsResponse gameDetails)
     {
         // Skipping the DLC's and other downloadable contents:
         if (string.IsNullOrWhiteSpace(gameDetails.GameType) || gameDetails.GameType != "game")
@@ -247,27 +264,33 @@ public class LibraryView
         return true;
     }
 
-    private static void SortLibrary(bool ascending)
+    private void SortLibrary(bool ascending)
     {
         Console.WriteLine(ascending ? "[INFO] - Sorting A-Z" : "[INFO] - Sorting Z-A");
         _sortAscending = ascending;
         _sorter.Changed(SorterChange.Different);
     }
     
-    private static void FilterInstalledGames(bool showOnlyInstalled)
+    private void FilterInstalledGames(bool showOnlyInstalled)
     {
         Console.WriteLine(showOnlyInstalled ? "[INFO] - Hiding Uninstalled games" : "[INFO] - Showing all games");
         _showOnlyInstalled = showOnlyInstalled;
         _filter.Changed(FilterChange.Different);
     }
 
-    private static void SetViewMode(bool showList)
+    private void SetViewMode(ELibraryViewMode viewMode)
     {
-        Console.WriteLine(showList ? "[INFO] - Changing to ListView" : "[INFO] - Changing to GridView");
-        _viewTypeStack.SetVisibleChildName(showList ? "list_view" : "grid_view");
+        var viewModeStr = viewMode.ToString().ToLower();
+        Console.WriteLine($"[INFO] - Changing LibraryView to {viewModeStr}");
+
+        if (_viewTypeStack.GetChildByName(viewModeStr) is null) 
+            return;
+        
+        SettingsService.Instance.ViewMode = viewMode;
+        _viewTypeStack.SetVisibleChildName(viewModeStr);
     }
 
-    private static GridView CreateGridView(SelectionModel selectionModel)
+    private GridView CreateGridView(SelectionModel selectionModel)
     {
         var gridFactory = SignalListItemFactory.New();
         gridFactory.OnSetup += OnGridFactorySetup;
@@ -287,7 +310,7 @@ public class LibraryView
         return gridView;
     }
     
-    private static async void OnGridFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
+    private async void OnGridFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
     {
         var listItem = (ListItem)args.Object;
 
@@ -326,7 +349,7 @@ public class LibraryView
         listItem.Child = mainBox;
     }
     
-    private static async void OnGridFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
+    private async void OnGridFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
     {
         var listItem = (ListItem)args.Object;
         var game = (GameModel)listItem.Item!;
@@ -382,7 +405,7 @@ public class LibraryView
         }
     }
 
-    private static ListView CreateListView(SelectionModel selectionModel)
+    private ListView CreateListView(SelectionModel selectionModel)
     {
         var listFactory = SignalListItemFactory.New();
         listFactory.OnSetup += OnListFactorySetup;
@@ -399,7 +422,7 @@ public class LibraryView
         return listView;
     }
     
-    private static void OnListFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
+    private void OnListFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
     {
         var listItem = (ListItem)args.Object;
 
@@ -420,12 +443,16 @@ public class LibraryView
         
         var downloadIcon = Image.NewFromIconName("folder-download-symbolic");
         downloadIcon.AddCssClass("dim-label");
+        downloadIcon.MarginStart = 8;
+        downloadIcon.TooltipText = "Available for Download";
         
         // Preparing the icons for the supported platforms:
         var icons = LoadPlatformIcons();
         
         var platformBox = Box.New(Orientation.Horizontal, 6);
         platformBox.Halign = Align.End;
+        platformBox.MarginStart = 16;
+        platformBox.MarginEnd = 16;
         platformBox.Append(icons.WindowsIcon);
         platformBox.Append(icons.LinuxIcon);
         platformBox.Append(icons.MacOsIcon);
@@ -438,7 +465,7 @@ public class LibraryView
         listItem.Child = rowBox;
     }
     
-    private static async void OnListFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
+    private async void OnListFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
     {
         var listItem = (ListItem)args.Object;
         var game = (GameModel)listItem.Item!;
@@ -482,13 +509,21 @@ public class LibraryView
     private static (Image WindowsIcon, Image LinuxIcon, Image MacOsIcon) LoadPlatformIcons()
     {
         var windowsIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/windows-symbolic.svg");
-        var linuxIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/linux-symbolic.svg");
-        var macosIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/macos-symbolic.svg");
-
         windowsIcon.PixelSize = 16;
+        windowsIcon.TooltipText = "Supports Windows";
+        
+        var linuxIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/linux-symbolic.svg");
         linuxIcon.PixelSize = 16;
+        linuxIcon.TooltipText = "Supports Linux";
+        
+        var macosIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/macos-symbolic.svg");
         macosIcon.PixelSize = 16;
+        macosIcon.TooltipText = "Supports MacOS";
         
         return (windowsIcon, linuxIcon, macosIcon);
     }
+    
+    // Properties:
+    public string Identifier => "LibraryView";
+    public Widget RootWidget => _mainStack;
 }

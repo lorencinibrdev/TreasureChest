@@ -1,4 +1,5 @@
 using Gio;
+using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Helpers.GOG;
 
 namespace TreasureChest.Source.Services;
@@ -53,9 +54,17 @@ public class SettingsService
         set => _settings.SetBoolean("first-run", value);
     }
     
-    public string ViewMode {
-        get => _settings.GetString("view-mode");
-        set => _settings.SetString("view-mode", value);
+    public ELibraryViewMode ViewMode
+    {
+        get
+        {
+            var stringValue = _settings.GetString("view-mode");
+
+            return Enum.TryParse<ELibraryViewMode>(stringValue, true, out var result) 
+                ? result 
+                : ELibraryViewMode.Grid;
+        }
+        set => _settings.SetString("view-mode", value.ToString().ToLower());
     }
     
     public EMainWindowTabs StartupDefaultView

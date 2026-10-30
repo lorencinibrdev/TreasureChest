@@ -2,17 +2,16 @@ using Adw;
 using Gtk;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.Downloads;
-using ApplicationWindow = Adw.ApplicationWindow;
 using Dialog = Adw.Dialog;
 using HeaderBar = Adw.HeaderBar;
 
-namespace TreasureChest.Source.Views;
+namespace TreasureChest.Source.Dialogs;
 
 public class GameInstallSetupDialog
 {
     // Private Members:
     private readonly Dialog _dialog;
-    private readonly ApplicationWindow _parentWindow;
+    private readonly MainWindow _parentWindow;
     private readonly StringList _languageModel;
     private readonly StringList _platformModel;
     private readonly ComboRow _languageRow;
@@ -21,7 +20,7 @@ public class GameInstallSetupDialog
     private readonly string _gameTitle;
     private readonly Dictionary<string, Dictionary<string, string>> _availableDownloads;
 
-    public GameInstallSetupDialog(ApplicationWindow parentWindow, string gameTitle, Dictionary<string, Dictionary<string, string>> availableDownloads)
+    public GameInstallSetupDialog(MainWindow parentWindow, string gameTitle, Dictionary<string, Dictionary<string, string>> availableDownloads)
     {
         _parentWindow = parentWindow;
         _availableDownloads = availableDownloads;
@@ -29,8 +28,8 @@ public class GameInstallSetupDialog
         
         _dialog = Dialog.New();
         _dialog.Title = $"Install {gameTitle}";
-        _dialog.ContentWidth = 450;
-        _dialog.ContentHeight = 350;
+        _dialog.ContentWidth = 800;
+        _dialog.ContentHeight = 600;
 
         var toolbarView = ToolbarView.New();
 
@@ -125,7 +124,11 @@ public class GameInstallSetupDialog
                     url: finalUrl,
                     targetFileName: fileName
                 );
-            
+                
+                _parentWindow.ShowToastNotification($"Started downloading {_gameTitle}");
+                _startDownloadButton.IconName = "object-select-symbolic";
+                _startDownloadButton.Sensitive = false;
+                
                 _dialog.Close();
             }
             catch (Exception e)
