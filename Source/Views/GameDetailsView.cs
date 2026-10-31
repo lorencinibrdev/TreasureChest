@@ -4,6 +4,7 @@ using Gtk;
 using TreasureChest.Source.Dialogs;
 using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
+using TreasureChest.Source.Services.Downloads;
 using HeaderBar = Adw.HeaderBar;
 using Spinner = Gtk.Spinner;
 
@@ -17,7 +18,7 @@ public partial class GameDetailsView : IView
     private readonly PreferencesGroup _dlcsGroup;
     private readonly PreferencesGroup _extrasGroup;
     private readonly Label _descriptionLabel;
-    private readonly Button _installButton;
+    private readonly MenuButton _installButton;
     
     private readonly GameDetailsResponse _gameDetails;
     private GameContentResponse? _contentDetails;
@@ -68,7 +69,8 @@ public partial class GameDetailsView : IView
         titleLabel.Halign = Align.Start;
         titleLabel.Wrap = true;
 
-        _installButton = Button.NewWithLabel("Install");
+        _installButton = MenuButton.New();
+        _installButton.Label = "Install";
         _installButton.AddCssClass("suggested-action");
         _installButton.AddCssClass("pill");
         _installButton.Halign = Align.Start;
@@ -306,62 +308,155 @@ public partial class GameDetailsView : IView
         return row;
     }
     
-    private Dictionary<string, Dictionary<string, string>> ExtractDownloadsMatrix(GameContentResponse gameContent)
+    private List<DownloadInformation> ExtractDownloadsList(GameContentResponse gameContent)
     {
-        var matrix = new Dictionary<string, Dictionary<string, string>>();
-
         if (gameContent.Downloads is null)
-            return matrix;
+            return [];
+        
+        var list = new List<DownloadInformation>();
 
-        foreach (var langGroup in gameContent.Downloads)
+        foreach (var downloadLanguageGroup in gameContent.Downloads)
         {
-            if (string.IsNullOrWhiteSpace(langGroup.Language) || !langGroup.Platforms.HasData)
+            if (string.IsNullOrWhiteSpace(downloadLanguageGroup.Language) || 
+                !downloadLanguageGroup.Platforms.HasData)
                 continue;
-            
-            var platformDict = new Dictionary<string, string>();
-            
-            var linuxLists = langGroup.Platforms.Linux?.FirstOrDefault()?.ManualUrl ?? null;
 
-            if (linuxLists is not null)
-            {
-                platformDict["Linux"] = linuxLists;
-            }
-            
-            var windowsLists = langGroup.Platforms.Windows?.FirstOrDefault()?.ManualUrl ?? null;
-
-            if (windowsLists is not null)
-            {
-                platformDict["Windows"] = windowsLists;
-            }
-            
-            var macLists = langGroup.Platforms.Mac?.FirstOrDefault()?.ManualUrl ?? null;
-
-            if (macLists is not null)
-            {
-                platformDict["MacOS"] = macLists;
-            }
-
-            if (platformDict.Count > 0)
-            {
-                matrix[langGroup.Language] = platformDict;
-            }
+            list.Add(new DownloadInformation(downloadLanguageGroup));
         }
 
-        return matrix;
+        return list;
     }
 
     private void SetupInstallButton(GameContentResponse contentDetails)
     {
-        _installButton.Label = "Install...";
         _installButton.Sensitive = true;
         
-        var parsedDownloadsMatrix = ExtractDownloadsMatrix(contentDetails);
+        var downloadsList = ExtractDownloadsList(contentDetails);
 
-        _installButton.OnClicked += (_, _) =>
+        var popover = Popover.New();
+        
+        var mainPopoverBox = Box.New(Orientation.Vertical, 4);
+        mainPopoverBox.AddCssClass("popover");
+        mainPopoverBox.SetSizeRequest(300, -1);
+        mainPopoverBox.MarginTop = 8;
+        mainPopoverBox.MarginBottom = 8;
+        mainPopoverBox.MarginStart = 8;
+        mainPopoverBox.MarginEnd = 8;
+
+        var listBox = ListBox.New();
+        listBox.SelectionMode = SelectionMode.None;
+        listBox.AddCssClass("boxed-list");
+
+        foreach (var downloadInformation in downloadsList)
         {
-            var setupDialog = new GameInstallSetupDialog(_parentWindow, _gameDetails.Title ?? "Unknown Game Title", parsedDownloadsMatrix);
-            setupDialog.Present();
-        };
+            var expanderRow = ExpanderRow.New();
+            expanderRow.Title = downloadInformation.Language;
+
+            var (windowsIcon, linuxIcon, macOsIcon) = LibraryView.LoadPlatformIcons();
+            windowsIcon.Visible = false;
+            linuxIcon.Visible = false;
+            macOsIcon.Visible = false;
+            
+            foreach (var supportedPlatform in downloadInformation.GetSupportedPlatforms())
+            {
+                switch (supportedPlatform)
+                {
+                    case ESupportedPlatform.Windows:
+                        windowsIcon.Visible = true;
+                        break;
+                    case ESupportedPlatform.Linux:
+                        linuxIcon.Visible = true;
+                        break;
+                    case ESupportedPlatform.MacOs:
+                        macOsIcon.Visible = true;
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+
+                var platformRow = ActionRow.New();
+                platformRow.Title = $"Download for {supportedPlatform.ToString()}";
+                platformRow.Subtitle = $"{downloadInformation.GetDownloadsForPlatform(supportedPlatform).Count} file(s)";
+                platformRow.Activatable = true;
+                platformRow.Halign = Align.Fill;
+
+                platformRow.OnActivated += (_, _) =>
+                {
+                    popover.Popdown();
+                    HandleStartDownloads(downloadInformation, supportedPlatform);
+                };
+                
+                expanderRow.AddRow(platformRow);
+            }
+
+            var iconsBox = Box.New(Orientation.Horizontal, 6);
+            iconsBox.Valign = Align.Center;
+            iconsBox.MarginEnd = 8;
+            
+            iconsBox.Append(windowsIcon);
+            iconsBox.Append(linuxIcon);
+            iconsBox.Append(macOsIcon);
+
+            expanderRow.AddSuffix(iconsBox);
+            listBox.Append(expanderRow);
+        }
+
+        mainPopoverBox.Append(listBox);
+        popover.Child = mainPopoverBox;
+        _installButton.Popover = popover;
+    }
+
+    private async void HandleStartDownloads(DownloadInformation downloadInformation, ESupportedPlatform platform)
+    {
+        // Fetching the list of files:
+        var fileList = downloadInformation.GetDownloadsForPlatform(platform);
+
+        if (fileList.Count == 0)
+            return;
+
+        var fileCountStr = $"{fileList.Count} file";
+
+        if (fileList.Count > 1)
+        {
+            fileCountStr += "s";
+        }
+        
+        // Queueing the download of all files:
+        foreach (var fileInformation in fileList)
+        {
+            try
+            {
+                var finalUrl = await GogServices.ResolveFinalDownloadUrlAsync(fileInformation.ManualUrl);
+                var uri = new Uri(finalUrl);
+                var fileName = Path.GetFileName(uri.AbsolutePath);
+                
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    fileName = $"{_gameDetails.Title?.Replace(" ", "_")}_{platform.ToString()}.bin";
+                }
+            
+                await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {fileInformation.ManualUrl}");
+                await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
+
+                DownloadQueueService.Instance.EnqueueDownload(
+                    title: $"{fileInformation.FileName} ({fileInformation.Size})",
+                    _gameDetails.Slug ?? string.Empty,
+                    url: finalUrl,
+                    targetFileName: fileName
+                );
+                
+                _installButton.IconName = "object-select-symbolic";
+                _installButton.Sensitive = false;
+            }
+            catch (Exception e)
+            {
+                await Console.Out.WriteLineAsync($"[ERROR] - Failed to queue the requested download: {e.Message}");
+                _installButton.Sensitive = true;
+                _installButton.Label = "Install";
+            }
+        }
+        
+        _parentWindow.ShowToastNotification($"Queued '{_gameDetails.Title}', in {downloadInformation.Language}, for {platform.ToString()} [{fileCountStr}]");
     }
     
     private static string CleanHtmlDescription(string html)

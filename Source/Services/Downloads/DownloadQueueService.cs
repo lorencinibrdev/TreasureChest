@@ -17,9 +17,9 @@ public class DownloadQueueService
         };
     }
 
-    public DownloadTask EnqueueDownload(string title, string url, string targetFileName)
+    public DownloadTask EnqueueDownload(string title, string slug, string url, string targetFileName)
     {
-        var targetDir = SettingsService.Instance.DownloadsFolder;
+        var targetDir = Path.Join(SettingsService.Instance.DownloadsFolder, slug);
 
         if (!Directory.Exists(targetDir))
         {
