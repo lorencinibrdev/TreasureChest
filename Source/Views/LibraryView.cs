@@ -506,7 +506,7 @@ public class LibraryView : IView
         }
     }
 
-    private static (Image WindowsIcon, Image LinuxIcon, Image MacOsIcon) LoadPlatformIcons()
+    public static (Image WindowsIcon, Image LinuxIcon, Image MacOsIcon) LoadPlatformIcons()
     {
         var windowsIcon = Image.NewFromResource("/io/github/lorencinibrdev/TreasureChest/icons/windows-symbolic.svg");
         windowsIcon.PixelSize = 16;
