@@ -39,12 +39,13 @@ public class GogDownloadLanguage
 
 public class GogDownloadItem
 {
-    [JsonPropertyName("manualUrl")] public string? ManualUrl { get; init; }
-    [JsonPropertyName("downloaderUrl")] public string? DownloaderUrl { get; init; }
+    // Properties:
     [JsonPropertyName("name")] public string? Name { get; init; }
     [JsonPropertyName("version")] public string? Version { get; init; }
     [JsonPropertyName("date")] public string? Date { get; init; }
     [JsonPropertyName("size")] public string? Size { get; init; }
+    [JsonPropertyName("manualUrl")] public string? ManualUrl { get; init; }
+    public bool HasData => ManualUrl is not null && Name is not null && Size is not null;
 }
 
 public class GogDownloadPlatforms
