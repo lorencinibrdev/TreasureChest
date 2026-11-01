@@ -438,7 +438,7 @@ public partial class GameDetailsView : IView
                 await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {fileInformation.ManualUrl}");
                 await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
 
-                DownloadQueueService.Instance.EnqueueDownload(
+                await DownloadQueueService.Instance.EnqueueDownload(
                     title: $"{fileInformation.FileName} ({fileInformation.Size})",
                     _gameDetails.Slug ?? string.Empty,
                     url: finalUrl,

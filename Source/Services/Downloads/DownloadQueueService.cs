@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Xml.Linq;
 
 namespace TreasureChest.Source.Services.Downloads;
 
@@ -17,7 +18,7 @@ public class DownloadQueueService
         };
     }
 
-    public DownloadTask EnqueueDownload(string title, string slug, string url, string targetFileName)
+    public async Task<DownloadTask> EnqueueDownload(string title, string slug, string url, string targetFileName)
     {
         var targetDir = Path.Join(SettingsService.Instance.DownloadsFolder, slug);
 
@@ -33,6 +34,9 @@ public class DownloadQueueService
             TargetFileName = targetFileName,
             DestinationFolderPath = targetDir
         };
+        
+        // Trying to fetch the md5 for later verification:
+        task.Md5Sum = await FetchMd5Hash(url, task.Cts.Token);
         
         _allTasks.Add(task);
         
@@ -56,37 +60,57 @@ public class DownloadQueueService
             task.TotalBytes = response.Content.Headers.ContentLength ?? 0;
 
             await using var contentStream = await response.Content.ReadAsStreamAsync(task.Cts.Token);
-            await using var fileStream = new FileStream(
-                task.PartialFilePath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                useAsync: true);
-
-            var buffer = new byte[81920];
-            int bytesRead;
-            var lastReportTime = DateTime.UtcNow;
-            long lastReportBytes = 0;
-
-            while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), task.Cts.Token)) > 0)
+                
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), task.Cts.Token);
-                task.TotalBytesDownloaded += bytesRead;
+                await using var fileStream = new FileStream(
+                    task.PartialFilePath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: 81920,
+                    useAsync: true);
 
-                var now = DateTime.UtcNow;
-                var timeDiff = (now - lastReportTime).TotalSeconds;
+                var buffer = new byte[81920];
+                int bytesRead;
+                var lastReportTime = DateTime.UtcNow;
+                long lastReportBytes = 0;
 
-                if (!(timeDiff >= 0.25))
-                    continue;
+                while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), task.Cts.Token)) >
+                       0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), task.Cts.Token);
+                    task.TotalBytesDownloaded += bytesRead;
 
-                task.SpeedBytesPerSecond = (task.TotalBytesDownloaded - lastReportBytes) / timeDiff;
-                lastReportTime = now;
-                lastReportBytes = task.TotalBytesDownloaded;
+                    var now = DateTime.UtcNow;
+                    var timeDiff = (now - lastReportTime).TotalSeconds;
+
+                    if (!(timeDiff >= 0.25))
+                        continue;
+
+                    task.SpeedBytesPerSecond = (task.TotalBytesDownloaded - lastReportBytes) / timeDiff;
+                    lastReportTime = now;
+                    lastReportBytes = task.TotalBytesDownloaded;
+                    NotifyUi(() => TaskUpdated?.Invoke(task));
+                }
+            }   // File stream release
+
+            // Validating the MD5 hash for the newly downloaded file:
+            if (!string.IsNullOrWhiteSpace(task.Md5Sum))
+            {
+                task.Status = EDownloadStatus.Validating;
                 NotifyUi(() => TaskUpdated?.Invoke(task));
-            }
 
-            await fileStream.DisposeAsync();
+                var isValid = await VerifyFileMd5Async(task.PartialFilePath, task.Md5Sum, task.Cts.Token);
+
+                if (!isValid)
+                {
+                    await Console.Out.WriteLineAsync($"[ERROR] - MD5 Mismatch for {task.Title}");
+                    task.Status = EDownloadStatus.Failed;
+                    CleanUpPartialFile(task);
+                    NotifyUi(() => TaskUpdated?.Invoke(task));
+                    return;
+                }
+            }
 
             if (File.Exists(task.FinalFilePath))
             {
@@ -114,7 +138,7 @@ public class DownloadQueueService
         }
     }
 
-    public void CancelDownload(DownloadTask task)
+    public static void CancelDownload(DownloadTask task)
     {
         if (task.Status is EDownloadStatus.Downloading or EDownloadStatus.Queued)
         {
@@ -143,6 +167,50 @@ public class DownloadQueueService
         catch
         {
             // Ignore cleanup exceptions
+        }
+    }
+
+    private static async Task<bool> VerifyFileMd5Async(string filePath, string expectedMd5, CancellationToken token)
+    {
+        await Console.Out.WriteLineAsync($"[INFO] - Checking MD5 hash for file: '{filePath}'");
+        using var md5 = System.Security.Cryptography.MD5.Create();
+
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 81920,
+            useAsync: true
+        );
+        
+        var hashBytes = await md5.ComputeHashAsync(stream, token);
+        var hashString = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        
+        await Console.Out.WriteLineAsync($"[INFO] - Expected: '{expectedMd5}'");
+        await Console.Out.WriteLineAsync($"[INFO] - Got: '{hashString}'");
+        
+        return string.Equals(hashString, expectedMd5.ToLowerInvariant());
+    }
+
+    private async Task<string?> FetchMd5Hash(string downloadUrl, CancellationToken token)
+    {
+        var finalUrl = downloadUrl + ".xml";
+
+        try
+        {
+            var xmlContent = await _httpClient.GetStringAsync(finalUrl, token);
+            var xmlDoc = XDocument.Parse(xmlContent);
+            var md5Value = xmlDoc.Element("file")?.Attribute("md5")?.Value;
+            
+            await Console.Out.WriteLineAsync($"[INFO] - Fetched MD5 hash: '{md5Value}'");
+            
+            return md5Value;
+        }
+        catch (Exception e)
+        {
+            await Console.Out.WriteLineAsync($"[WARNING] - Failed to fetch or parse MD5 manifest from {finalUrl}: {e.Message}");
+            return null;
         }
     }
     

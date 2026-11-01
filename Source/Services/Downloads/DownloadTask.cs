@@ -6,6 +6,7 @@ public enum EDownloadStatus
     Downloading,
     Paused,
     Completed,
+    Validating,
     Failed,
     Cancelled
 }
@@ -18,6 +19,7 @@ public class DownloadTask
     public string DownloadUrl { get; init; } = string.Empty;
     public string TargetFileName { get; init; } = string.Empty;
     public string DestinationFolderPath { get; init; } = string.Empty;
+    public string? Md5Sum { get; set; }
     public EDownloadStatus Status { get; set; } = EDownloadStatus.Queued;
     public long TotalBytesDownloaded { get; set; }
     public long TotalBytes { get; set; }

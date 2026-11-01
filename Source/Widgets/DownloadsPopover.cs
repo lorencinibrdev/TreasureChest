@@ -116,7 +116,7 @@ public class DownloadsPopover
         {
             if (task.Status == EDownloadStatus.Downloading)
             {
-                DownloadQueueService.Instance.CancelDownload(task);    
+                DownloadQueueService.CancelDownload(task);    
             }
 
             RemoveTaskRow(task.Id);
