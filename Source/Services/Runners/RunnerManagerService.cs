@@ -5,7 +5,7 @@ namespace TreasureChest.Source.Services.Runners;
 public class RunnerManagerService
 {
     public static RunnerManagerService Instance { get; } = new();
-    private readonly HttpClient _httpClient = new();
+    private readonly HttpClient _httpClient;
     private static readonly string[] CompoundExtensions = [
         ".tar.xz", 
         ".tar.gz", 
@@ -195,6 +195,7 @@ public class RunnerManagerService
             ERunnerType.ScummVm => "scummvm",
             ERunnerType.Wine => "wine",
             ERunnerType.Proton => "proton",
+            ERunnerType.InnoExtract => "innoextract",
             _ => throw new ArgumentOutOfRangeException(nameof(runnerType), runnerType, null)
         };
     }
@@ -233,5 +234,18 @@ public class RunnerManagerService
         }
         
         return Path.GetExtension(fileName);
+    }
+    
+    public static string GetDownloadUrlForRunner(ERunnerType runnerType)
+    {
+        const string baseUrl = "https://github.com/lorencinibrdev/TreasureChest/releases/download/runtimes-v1";
+        
+        return runnerType switch
+        {
+            ERunnerType.DosBox => $"{baseUrl}/dosbox-staging-linux-x86_64-v0.83.0.tar.xz",
+            ERunnerType.ScummVm => $"{baseUrl}/scummvm-2026.4.0-x86_64-linux.tar.xz",
+            ERunnerType.InnoExtract => "https://github.com/dscharrer/innoextract/releases/download/1.9/innoextract-1.9-linux.tar.xz",
+            _ => throw new NotImplementedException($"No direct download URL configured for {runnerType}")
+        };
     }
 }

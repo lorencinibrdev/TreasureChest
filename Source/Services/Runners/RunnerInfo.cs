@@ -5,7 +5,8 @@ public enum ERunnerType
     DosBox,
     ScummVm,
     Wine,
-    Proton
+    Proton,
+    InnoExtract
 }
 
 public class RunnerInfo

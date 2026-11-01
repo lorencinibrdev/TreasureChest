@@ -71,7 +71,7 @@ public class PreferencesDialog
 
         var autoCleanRow = SwitchRow.New();
         autoCleanRow.Title = "Auto-Clean Downloads";
-        autoCleanRow.Subtitle = "Automatically clean installer files after a game was isntalled sucessfully.";
+        autoCleanRow.Subtitle = "Automatically clean installer files after a game was installed successfully.";
         autoCleanRow.Active = SettingsService.Instance.AutoCleanDownloads;
 
         autoCleanRow.OnNotify += (_, _) =>
@@ -153,6 +153,12 @@ public class PreferencesDialog
         downloadsGroup.Description = "The engines used to run Windows, DOS and Arcade games in Linux";
         
         // Add runner rows dynamically
+        downloadsGroup.Add(CreateRuntimeRow(
+            runnerType: ERunnerType.InnoExtract, 
+            displayName: "InnoExtract", 
+            description: "Extracts GOG installers directly, via command line"
+        ));
+        
         downloadsGroup.Add(CreateRuntimeRow(
             runnerType: ERunnerType.DosBox, 
             displayName: "DOSBox Staging", 
@@ -276,7 +282,7 @@ public class PreferencesDialog
                 
                 row.Subtitle = $"{description}\nStatus: Downloading portable runner...";
 
-                var downloadUrl = GetDownloadUrlForRunner(runnerType);
+                var downloadUrl = RunnerManagerService.GetDownloadUrlForRunner(runnerType);
                 var success = await RunnerManagerService.Instance.InstallRunnerAsync(runnerType, downloadUrl);
                 
                 spinner.Spinning = false;
@@ -308,17 +314,5 @@ public class PreferencesDialog
         }
         
         return row;
-    }
-
-    private static string GetDownloadUrlForRunner(ERunnerType runnerType)
-    {
-        const string baseUrl = "https://github.com/lorencinibrdev/TreasureChest/releases/download/runtimes-v1";
-        
-        return runnerType switch
-        {
-            ERunnerType.DosBox => $"{baseUrl}/dosbox-staging-linux-x86_64-v0.83.0.tar.xz",
-            ERunnerType.ScummVm => $"{baseUrl}/scummvm-2026.4.0-x86_64-linux.tar.xz",
-            _ => throw new NotImplementedException($"No direct download URL configured for {runnerType}")
-        };
     }
 }
