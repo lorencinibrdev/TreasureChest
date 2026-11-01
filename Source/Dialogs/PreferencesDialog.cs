@@ -87,7 +87,7 @@ public class PreferencesDialog
         return page;
     }
     
-    private PreferencesPage PrepareUiPage()
+    private static PreferencesPage PrepareUiPage()
     {
         // The page itself:
         var page = PreferencesPage.New();
@@ -242,28 +242,26 @@ public class PreferencesDialog
         return row;
     }
 
-    private ActionRow CreateRuntimeRow(ERunnerType runnerType, string displayName, string description)
+    private static ActionRow CreateRuntimeRow(ERunnerType runnerType, string displayName, string description)
     {
         var row = ActionRow.New();
         row.Title = displayName;
+        row.Subtitle = description;
         
         var info = RunnerManagerService.GetRunnerInformation(runnerType);
 
+        var statusIcon = Image.New();
+        statusIcon.Valign = Align.Center;
+        statusIcon.MarginEnd = 8;
+
         if (info.IsAvailable)
         {
-            var locationTag = info.IsSystemInstalled ? "System" : "Portable";
-            row.Subtitle = $"{description}\nPath: {info.ExecutablePath} ({locationTag})";
-
-            var statusIcon = Image.NewFromIconName("emblem-ok-symbolic");
-            statusIcon.Valign = Align.Center;
+            statusIcon.SetFromIconName("circle-check-cross-symbolic");
             statusIcon.TooltipText = "Installed and Ready";
-            
             row.AddSuffix(statusIcon);
         }
         else
         {
-            row.Subtitle = $"{description}\nStatus: Not Installed!";
-            
             var downloadButton = Button.NewFromIconName("folder-download-symbolic");
             downloadButton.Valign = Align.Center;
             downloadButton.AddCssClass("flat");
@@ -279,8 +277,7 @@ public class PreferencesDialog
                 downloadButton.Visible = false;
                 spinner.Visible = true;
                 spinner.Spinning = true;
-                
-                row.Subtitle = $"{description}\nStatus: Downloading portable runner...";
+                spinner.MarginEnd = 8;
 
                 var downloadUrl = RunnerManagerService.GetDownloadUrlForRunner(runnerType);
                 var success = await RunnerManagerService.Instance.InstallRunnerAsync(runnerType, downloadUrl);
@@ -290,11 +287,9 @@ public class PreferencesDialog
 
                 if (success)
                 {
-                    var updatedInfo = RunnerManagerService.GetRunnerInformation(runnerType);
-                    row.Subtitle = $"{description}\nPath: {updatedInfo.ExecutablePath} (Portable)";
-                    
-                    var checkIcon = Image.NewFromIconName("emblem-ok-symbolic");
+                    var checkIcon = Image.NewFromIconName("circle-check-cross-symbolic");
                     checkIcon.Valign = Align.Center;
+                    checkIcon.MarginEnd = 8;
 
                     row.Remove(downloadButton);
                     row.Remove(spinner);
@@ -304,7 +299,6 @@ public class PreferencesDialog
                 {
                     downloadButton.Sensitive = true;
                     downloadButton.Visible = true;
-                    row.Subtitle = $"{description}\nStatus: Download failed. Click to try again.";
                 }
             };
 
