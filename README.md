@@ -1,6 +1,7 @@
 > [!NOTE]
 > This README was initially generated with the assistance of AI and serves as a temporary overview. It will be refined and updated as the project evolves.
 
+
 # TreasureChest 🏴‍☠️
 
 **TreasureChest** is a native, modern, and lightweight GOG library manager and download tool designed specifically for the GNOME desktop environment. Written in C# and powered by GTK 4 and Libadwaita, it offers a seamless experience for browsing, managing, and downloading your DRM-free GOG games without the overhead of web wrappers or heavy launch clients.
