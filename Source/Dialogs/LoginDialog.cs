@@ -1,6 +1,7 @@
 using System.Web;
 using Gtk;
 using TreasureChest.Source.Services;
+using TreasureChest.Source.Services.GOG;
 using WebKit;
 using Dialog = Adw.Dialog;
 using HeaderBar = Adw.HeaderBar;
@@ -42,7 +43,7 @@ public class LoginDialog
 
     public async Task<string?> ShowAndAuthenticateAsync()
     {
-        _webView.LoadUri(GogServices.UrlAuth);
+        _webView.LoadUri(GogService.Instance.UrlAuth);
         _modalDialog.Present(_parentWindow);
         return await _tcs.Task;
     }

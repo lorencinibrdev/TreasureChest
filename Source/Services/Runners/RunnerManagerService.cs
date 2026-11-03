@@ -4,7 +4,6 @@ namespace TreasureChest.Source.Services.Runners;
 
 public class RunnerManagerService
 {
-    public static RunnerManagerService Instance { get; } = new();
     private readonly HttpClient _httpClient;
     private static readonly string[] CompoundExtensions = [
         ".tar.xz", 
@@ -248,4 +247,7 @@ public class RunnerManagerService
             _ => throw new NotImplementedException($"No direct download URL configured for {runnerType}")
         };
     }
+    
+    // Properties:
+    public static RunnerManagerService Instance { get; } = new();
 }

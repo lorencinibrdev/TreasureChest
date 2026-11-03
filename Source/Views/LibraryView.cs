@@ -1,8 +1,10 @@
 using Gtk;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
+using TreasureChest.Source.Services.GOG;
+using TreasureChest.Source.Services.Library;
 using File = System.IO.File;
+using GameEntry = TreasureChest.Source.Services.Library.GameEntry;
 using Task = System.Threading.Tasks.Task;
 
 namespace TreasureChest.Source.Views;
@@ -96,7 +98,7 @@ public class LibraryView : IView
     
     private void ShowGameDetailsModalDialog(GameModel game)
     {
-        var fullGameDetails = LibraryServices.GetGameDetails(game.Id);
+        var fullGameDetails = LibraryService.Instance.GetGameDetails(game.Id);
 
         if (fullGameDetails is null) 
             return;
@@ -197,26 +199,25 @@ public class LibraryView : IView
 
     private async Task LoadCachedLibraryDataAsync()
     {
-        var cachedGames = await LibraryServices.LoadLibraryFromCacheAsync();
-
-        if (cachedGames is not null && cachedGames.Count != 0)
-        {
-            await MergeAndUpdateLibrary(cachedGames);
-            _ = ImagePrefetchService.PrefetchLibraryImagesAsync(cachedGames);
-        }
+        if (!await LibraryService.Instance.LoadLibraryFromCacheAsync())
+            return;
+        
+        var gameList = LibraryService.Instance.GetLoadedGames();
+        await MergeAndUpdateLibrary(gameList);
+        _ = ImagePrefetchService.Instance.PrefetchLibraryImagesAsync(gameList);
     }
 
     public async Task RefreshNetworkLibraryDataAsync()
     {
-        if (!await GogServices.RefreshGameList())
+        if (!await GogService.Instance.RefreshGameList())
             return;
         
-        var liveGames = LibraryServices.GetLoadedGames();
+        var liveGames = LibraryService.Instance.GetLoadedGames();
         await MergeAndUpdateLibrary(liveGames);
-        _ = ImagePrefetchService.PrefetchLibraryImagesAsync(liveGames);
+        _ = ImagePrefetchService.Instance.PrefetchLibraryImagesAsync(liveGames);
     }
 
-    public async Task MergeAndUpdateLibrary(IReadOnlyList<GameDetailsResponse> gameDetails)
+    public async Task MergeAndUpdateLibrary(IReadOnlyList<GameEntry> gameList)
     {
         await Console.Out.WriteLineAsync("[INFO] - Fetched a new game list from servers. Merging the diffs...");
         
@@ -230,12 +231,12 @@ public class LibraryView : IView
             existingIds.Add(model.Id);
         }
 
-        foreach (var gameDetail in gameDetails)
+        foreach (var game in gameList)
         {
-            if (!gameDetail.Id.HasValue || existingIds.Contains(gameDetail.Id.Value)) 
+            if (existingIds.Contains(game.Id)) 
                 continue;
 
-            if (AddGame(gameDetail))
+            if (AddGame(game))
             {
                 newEntriesFound++;    
             }
@@ -253,13 +254,13 @@ public class LibraryView : IView
         _mainStack.SetVisibleChildName("grid_page");
     }
 
-    private bool AddGame(GameDetailsResponse gameDetails)
+    private bool AddGame(GameEntry game)
     {
         // Skipping the DLC's and other downloadable contents:
-        if (string.IsNullOrWhiteSpace(gameDetails.GameType) || gameDetails.GameType != "game")
+        if (game.Type != "game")
             return false;
         
-        var model = GameModel.New(gameDetails);
+        var model = GameModel.New(game);
         _store.Append(model);
         return true;
     }
@@ -366,9 +367,9 @@ public class LibraryView : IView
         var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
         var macosIcon = (Image)linuxIcon.GetNextSibling()!;
 
-        windowsIcon.Visible = game.SupportsWindows;
-        linuxIcon.Visible = game.SupportsLinux;
-        macosIcon.Visible = game.SupportsMacOs;
+        windowsIcon.Visible = game.SystemCompatibility.Windows;
+        linuxIcon.Visible = game.SystemCompatibility.Linux;
+        macosIcon.Visible = game.SystemCompatibility.MacOs;
         
         label.SetText(game.Title);
         picture.SetFile(null);
@@ -394,7 +395,7 @@ public class LibraryView : IView
             picture.Opacity = 1;
         }
 
-        var localImagePath = await ImagePrefetchService.FetchImageWithPriorityAsync(game.Id.ToString(), EImageType.Logo2X, game.LogoPath);
+        var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.Logo2X, game.LogoPath);
 
         if (listItem.Item != game) 
             return;
@@ -480,9 +481,9 @@ public class LibraryView : IView
         var macosIcon = (Image)linuxIcon.GetNextSibling()!;
         var downloadIcon = (Image)macosIcon.GetNextSibling()!;
 
-        windowsIcon.Visible = game.SupportsWindows;
-        linuxIcon.Visible = game.SupportsLinux;
-        macosIcon.Visible = game.SupportsMacOs;
+        windowsIcon.Visible = game.SystemCompatibility.Windows;
+        linuxIcon.Visible = game.SystemCompatibility.Linux;
+        macosIcon.Visible = game.SystemCompatibility.MacOs;
 
         label.SetText(game.Title);
         picture.SetFile(null);
@@ -498,7 +499,7 @@ public class LibraryView : IView
             downloadIcon.Visible = false;
         }
 
-        var localImagePath = await ImagePrefetchService.FetchImageWithPriorityAsync(game.Id.ToString(), EImageType.SidebarIcon2X, game.IconPath);
+        var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.SidebarIcon2X, game.IconPath);
 
         if (listItem.Item == game && File.Exists(localImagePath))
         {

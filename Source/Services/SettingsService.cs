@@ -1,13 +1,11 @@
 using Gio;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Helpers.GOG;
 
 namespace TreasureChest.Source.Services;
 
 public class SettingsService
 {
     // Private Members
-    public static SettingsService Instance { get; } = new();
     private readonly Settings _settings;
 
     private SettingsService()
@@ -160,6 +158,7 @@ public class SettingsService
     }
     
     // Properties:
+    public static SettingsService Instance { get; } = new();
     public static string ApplicationId => "io.github.lorencinibrdev.TreasureChest";
     public static string CacheDirectory { get; } = SetupCacheDirectory();
     public static string DataDirectory { get; } = SetupDataDirectory();

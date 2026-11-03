@@ -2,7 +2,7 @@ using Adw;
 using Gtk;
 using TreasureChest.Source.Dialogs;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Services;
+using TreasureChest.Source.Services.GOG;
 
 namespace TreasureChest.Source.Views;
 
@@ -33,7 +33,7 @@ public class LoginView : IView
             
             if (!string.IsNullOrEmpty(authCode))
             {
-                loginSuccess = await GogServices.Login(authCode);
+                loginSuccess = await GogService.Instance.Login(authCode);
             }
 
             if (!loginSuccess)

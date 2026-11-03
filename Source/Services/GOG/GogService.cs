@@ -1,11 +1,12 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using TreasureChest.Source.Helpers.GOG;
+using TreasureChest.Source.Helpers.GOG.Responses;
+using TreasureChest.Source.Services.Library;
 
-namespace TreasureChest.Source.Services;
+namespace TreasureChest.Source.Services.GOG;
 
-public static class GogServices
+public class GogService
 {
     // Consts:
     private const string ClientId = "46899977096215655";
@@ -13,11 +14,19 @@ public static class GogServices
     private const string RedirectUri = "https://embed.gog.com/on_login_success?origin=client";
     
     // Private Members:
-    private static readonly HttpClient HttpClient = new(new HttpClientHandler { AllowAutoRedirect = false });
-    private static GogTokenResponse? _tokens;
-    private static GogUserDataResponse? _userData;
+    private readonly HttpClient _httpClient;
+    private GogTokenResponse? _tokens;
+    private GogUserDataResponse? _userData;
 
-    public static async Task<bool> Login(string? authCode)
+    private GogService()
+    {
+        _httpClient = new HttpClient(new HttpClientHandler
+        {
+            AllowAutoRedirect = false
+        });
+    }
+    
+    public async Task<bool> Login(string? authCode)
     {
         Secret.Module.Initialize();
 
@@ -31,7 +40,7 @@ public static class GogServices
         // With the authCode, we can request the refresh tokens from GOG API's:
         await RequestTokens(authCode);
 
-        if (_tokens is null || !_tokens.IsValid())
+        if (_tokens is null || !_tokens.IsValid)
         {
             await Console.Out.WriteLineAsync("[ERROR] - Failed to retrieve the Login Tokens from GOG API's. Cannot Login.");
             return false;
@@ -50,7 +59,7 @@ public static class GogServices
         return true;
     }
     
-    public static async Task<bool> RestoreSessionAsync()
+    public async Task<bool> RestoreSessionAsync()
     {
         // If we are not logged in, then cannot restore session:
         if (string.IsNullOrEmpty(SettingsService.Instance.SavedUsername))
@@ -58,7 +67,7 @@ public static class GogServices
 
         Secret.Module.Initialize();
         
-        if (_userData is null || !_userData.IsValid())
+        if (_userData is null || !_userData.IsValid)
         {
             _userData = new GogUserDataResponse
             {
@@ -88,7 +97,7 @@ public static class GogServices
         return true;
     }
 
-    private static async Task<bool> RequestTokens(string authCode)
+    private async Task<bool> RequestTokens(string authCode)
     {
         await Console.Out.WriteLineAsync("[INFO] - Fetching the user tokens (First Login)...");
         
@@ -103,7 +112,7 @@ public static class GogServices
         
         _tokens = (GogTokenResponse?)await CallPostApi<GogTokenResponse>(UrlTokenFetch, requestBody);
 
-        if (_tokens is not null && _tokens.IsValid()) 
+        if (_tokens is not null && _tokens.IsValid) 
             return true;
         
         await Console.Out.WriteLineAsync("[ERROR] - Failed to request new tokens...");
@@ -111,13 +120,13 @@ public static class GogServices
 
     }
 
-    private static async Task<bool> RefreshTokens()
+    private async Task<bool> RefreshTokens()
     {
         // Trying to fetch from secret keyring:
         await Console.Out.WriteLineAsync("[INFO] - Fetching the refresh tokens from the secret keyring...");
 
         var userName = _userData?.Username ?? SettingsService.Instance.SavedUsername;
-        var oldRefreshToken = _tokens?.RefreshToken ?? await SecretService.GetRefreshTokenAsync(userName); 
+        var oldRefreshToken = _tokens?.RefreshToken ?? await SecretService.Instance.GetRefreshTokenAsync(userName); 
         
         if (string.IsNullOrEmpty(oldRefreshToken))
         {
@@ -141,7 +150,7 @@ public static class GogServices
 
         _tokens = (GogTokenResponse?)await CallPostApi<GogTokenResponse>(UrlTokenFetch, requestBody); 
 
-        if (_tokens is null || !_tokens.IsValid()) 
+        if (_tokens is null || !_tokens.IsValid) 
             return false;
         
         await SaveRefreshTokenToKeyring();
@@ -149,11 +158,11 @@ public static class GogServices
         return true;
     }
 
-    public static async Task<bool> RefreshGameList()
+    public async Task<bool> RefreshGameList()
     {
         await Console.Out.WriteLineAsync("[INFO] - Fetching the game list from GOG servers...");
 
-        var gameResponse = (OwnedGamesResponse?) await CallGetApi<OwnedGamesResponse>(UrlGameList);
+        var gameResponse = (GogOwnedGamesListResponse?) await CallGetApi<GogOwnedGamesListResponse>(UrlGameList);
 
         if (gameResponse?.Games is null)
         {
@@ -162,45 +171,35 @@ public static class GogServices
         }
         
         await ProcessGameList(gameResponse);
-        await Console.Out.WriteLineAsync($"[INFO] - Successfully retrieved the game list. Found {LibraryServices.GamesCount} games.");
+        await Console.Out.WriteLineAsync($"[INFO] - Successfully retrieved the game list. Found {LibraryService.Instance.GamesCount} games.");
         
         // Saving the gamelist information on the local cache:
-        await LibraryServices.SaveLibraryAsync();
+        await LibraryService.Instance.SaveLibraryAsync();
         
         return true;
     }
 
-    public static async Task<object?> FetchGameContentDetails(GameDetailsResponse selectedGame)
+    public async Task<object?> FetchGameContentDetails(GameEntry game)
     {
-        if (!selectedGame.Id.HasValue)
-            return false;
-
-        var urlToCall = $"{UrlGameDetails}{selectedGame.Id.Value.ToString()}.json";
-        
-        return await CallGetApi<GameContentResponse>(urlToCall);
+        var urlToCall = $"{UrlGameDetails}{game.Id.ToString()}.json";
+        return await CallGetApi<GogResponseGameContent>(urlToCall);
     }
     
-    public static async Task<List<GameDetailsResponse>?> FetchGameDlcContentDetails(GameDetailsResponse selectedGame)
+    public async Task<List<GogResponseGameDetails>?> FetchGameDlcContentDetails(GameEntry game)
     {
-        if (!selectedGame.Id.HasValue 
-            || selectedGame.DlcInformation is null 
-            && selectedGame.DlcInformation is not { HasDlc: true } 
-            || string.IsNullOrWhiteSpace(selectedGame.DlcInformation.AllProductsUrl))
-        {
+        if (!game.HasDlc || string.IsNullOrWhiteSpace(game.GameLinks.AllProductsUrl))
             return null;
-        }
 
-        var urlToCall = selectedGame.DlcInformation.AllProductsUrl;
-        return await CallGetApi<List<GameDetailsResponse>>(urlToCall) as List<GameDetailsResponse>;
+        return await CallGetApi<List<GogResponseGameDetails>>(game.GameLinks.AllProductsUrl) as List<GogResponseGameDetails>;
     }
 
-    public static async Task<ProductDescriptionResponse?> FetchGameDescriptionAsync(long gameId)
+    public async Task<GogProductDescriptionResponse?> FetchGameDescriptionAsync(long gameId)
     {
         var url = $"https://api.gog.com/products/{gameId}?expand=description";
-        return await CallGetApi<ProductDescriptionResponse>(url) as ProductDescriptionResponse;
+        return await CallGetApi<GogProductDescriptionResponse>(url) as GogProductDescriptionResponse;
     }
     
-    public static async Task<string> ResolveFinalDownloadUrlAsync(string manualUrl)
+    public async Task<string> ResolveFinalDownloadUrlAsync(string manualUrl)
     {
         var requestUrl = manualUrl.StartsWith('/')
             ? $"https://www.gog.com{manualUrl}"
@@ -223,7 +222,7 @@ public static class GogServices
         return requestUrl;
     }
 
-    private static async Task<bool> ProcessGameList(OwnedGamesResponse gameList)
+    private async Task<bool> ProcessGameList(GogOwnedGamesListResponse gameList)
     {
         if (gameList.Games is null)
             return false;
@@ -238,7 +237,7 @@ public static class GogServices
             var idList = string.Join(",", batch);
             var url = $"https://embed.gog.com/products?ids={idList}?expand=description";
             
-            var response = await HttpClient.GetAsync(url);
+            var response = await _httpClient.GetAsync(url);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -247,8 +246,10 @@ public static class GogServices
             }
             
             response.EnsureSuccessStatusCode();
+            
+            var jsonResponse = await response.Content.ReadAsStringAsync();
 
-            var fetchedDetails = await response.Content.ReadFromJsonAsync<List<GameDetailsResponse>>();
+            var fetchedDetails = await response.Content.ReadFromJsonAsync<List<GogResponseGameDetails>>();
 
             if (fetchedDetails is not null)
             {
@@ -257,7 +258,7 @@ public static class GogServices
 
                 if (onlyBaseGames.Count > 0)
                 {
-                    LibraryServices.AddGames(onlyBaseGames);    
+                    LibraryService.Instance.AddGames(onlyBaseGames);    
                 }
             }
             
@@ -268,13 +269,13 @@ public static class GogServices
         return true;
     }
 
-    private static async Task<bool> RefreshUserInformation()
+    private async Task<bool> RefreshUserInformation()
     {
         await Console.Out.WriteLineAsync("[INFO] - Fetching the user information...");
         
         _userData = (GogUserDataResponse?)await CallGetApi<GogUserDataResponse>(UrlUserData);
 
-        if (_userData is null || !_userData.IsValid())
+        if (_userData is null || !_userData.IsValid)
         {
             await Console.Out.WriteLineAsync("[ERROR] - Failed to fetch the user information.");
             return false;
@@ -289,7 +290,7 @@ public static class GogServices
         return true;
     }
 
-    private static async Task<bool> SaveRefreshTokenToKeyring()
+    private async Task<bool> SaveRefreshTokenToKeyring()
     {
         await Console.Out.WriteLineAsync("[INFO] - Saving the user information on the system keyring...");
 
@@ -306,7 +307,7 @@ public static class GogServices
         
         try
         {
-            saved = await SecretService.SaveRefreshTokenAsync(username, refreshToken);
+            saved = await SecretService.Instance.SaveRefreshTokenAsync(username, refreshToken);
 
             if (saved)
             {
@@ -321,7 +322,7 @@ public static class GogServices
         return saved;
     }
 
-    private static async Task<object?> CallGetApi<T>(string url)
+    private async Task<object?> CallGetApi<T>(string url)
     {
         if (_tokens is null || string.IsNullOrEmpty(_tokens.AccessToken))
         {
@@ -336,7 +337,7 @@ public static class GogServices
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _tokens.AccessToken);
             
-            var response = await HttpClient.SendAsync(request);
+            var response = await _httpClient.SendAsync(request);
             response.EnsureSuccessStatusCode();
             
             var jsonText = await response.Content.ReadAsStringAsync();
@@ -350,7 +351,7 @@ public static class GogServices
         return null;
     }
     
-    private static async Task<HttpResponseMessage?> CallGetApi(string url)
+    private async Task<HttpResponseMessage?> CallGetApi(string url)
     {
         if (_tokens is null || string.IsNullOrEmpty(_tokens.AccessToken))
         {
@@ -364,7 +365,7 @@ public static class GogServices
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _tokens.AccessToken);
-            var response = await HttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
             return response;
         }
         catch(Exception e)
@@ -375,13 +376,13 @@ public static class GogServices
         return null;
     }
     
-    private static async Task<object?> CallPostApi<T>(string url, Dictionary<string, string> requestBody)
+    private async Task<object?> CallPostApi<T>(string url, Dictionary<string, string> requestBody)
     {
         await Console.Out.WriteLineAsync($"[INFO] - Sending POST request to {url}...");
 
         try
         {
-            var response = await HttpClient.PostAsync(url, new FormUrlEncodedContent(requestBody));
+            var response = await _httpClient.PostAsync(url, new FormUrlEncodedContent(requestBody));
 
             if (!response.IsSuccessStatusCode)
             {
@@ -403,10 +404,11 @@ public static class GogServices
     }
     
     // Properties:
-    public static bool IsLoggedIn { get; private set; }
-    public static string UrlAuth { get; } = $"https://auth.gog.com/auth?client_id={ClientId}&redirect_uri={RedirectUri}&response_type=code&layout=client2";
-    public static string UrlTokenFetch { get; } = "https://auth.gog.com/token";
-    public static string UrlUserData { get; } = "https://embed.gog.com/userData.json";
-    public static string UrlGameList { get; } = "https://embed.gog.com/user/data/games";
-    public static string UrlGameDetails { get; } = "https://embed.gog.com/account/gameDetails/";
+    public static GogService Instance { get; } = new();
+    public bool IsLoggedIn { get; private set; }
+    public string UrlAuth { get; } = $"https://auth.gog.com/auth?client_id={ClientId}&redirect_uri={RedirectUri}&response_type=code&layout=client2";
+    private string UrlTokenFetch { get; } = "https://auth.gog.com/token";
+    private string UrlUserData { get; } = "https://embed.gog.com/userData.json";
+    private string UrlGameList { get; } = "https://embed.gog.com/user/data/games";
+    private string UrlGameDetails { get; } = "https://embed.gog.com/account/gameDetails/";
 }

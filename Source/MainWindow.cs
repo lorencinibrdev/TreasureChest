@@ -2,8 +2,9 @@ using Adw;
 using GObject;
 using Gtk;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Helpers.GOG;
 using TreasureChest.Source.Services;
+using TreasureChest.Source.Services.GOG;
+using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views;
 using TreasureChest.Source.Widgets;
 using Application = Adw.Application;
@@ -162,7 +163,7 @@ public partial class MainWindow
 
     private async Task ValidateSessionAsync()
     {
-        var isSessionValid = await GogServices.RestoreSessionAsync();
+        var isSessionValid = await GogService.Instance.RestoreSessionAsync();
 
         if (!isSessionValid)
         {
@@ -172,7 +173,7 @@ public partial class MainWindow
         {
             await Console.Out.WriteLineAsync("[INFO] - Session valid and correctly restored.");
             await _libraryView.RefreshNetworkLibraryDataAsync();
-            await _libraryView.MergeAndUpdateLibrary(LibraryServices.GetLoadedGames());
+            await _libraryView.MergeAndUpdateLibrary(LibraryService.Instance.GetLoadedGames());
         }
     }
     
@@ -184,10 +185,10 @@ public partial class MainWindow
         SettingsService.Instance.IsFirstRun = false;
     }
 
-    public void ShowGameDetails(GameDetailsResponse gameDetails)
+    public void ShowGameDetails(GameEntry game)
     {
-        var gameId = $"GameDetails_{gameDetails.Id}";
-        var gameView = new GameDetailsView(this, gameDetails);
+        var gameId = $"GameDetails_{game.Id}";
+        var gameView = new GameDetailsView(this, game);
         
         _rootStack.AddNamed(gameView.RootWidget, gameId);
         _rootStack.SetVisibleChildName(gameId);

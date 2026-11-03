@@ -1,4 +1,3 @@
-
 using Adw;
 using Gtk;
 

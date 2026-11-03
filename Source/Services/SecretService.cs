@@ -2,13 +2,18 @@ using System.Runtime.InteropServices;
 
 namespace TreasureChest.Source.Services;
 
-public static class SecretService
+public class SecretService
 {
     // Private Members:
     private const string LibSecret = "libsecret-1.so.0";
     private const int SchemaAttributeString = 0;
     private const int SchemaFlagsNone = 0;
-    private static readonly IntPtr GogSchema = CreateGogSchema();
+    private readonly IntPtr _gogSchema = CreateGogSchema();
+
+    private SecretService()
+    {
+        
+    }
 
     [DllImport(LibSecret, EntryPoint = "secret_schema_new", CharSet = CharSet.Ansi)]
     private static extern IntPtr SecretSchemaNew(
@@ -17,16 +22,6 @@ public static class SecretService
         string attributeName, int attributeType,
         IntPtr endMarker
     );
-    
-    private static IntPtr CreateGogSchema()
-    {
-        return SecretSchemaNew(
-            GogSchemaName, 
-            SchemaFlagsNone, 
-            "Account", SchemaAttributeString, 
-            IntPtr.Zero
-        );
-    }
     
     [DllImport(LibSecret, EntryPoint = "secret_password_store_sync", CharSet = CharSet.Ansi)]
     private static extern bool SecretPasswordStoreSync(
@@ -61,10 +56,10 @@ public static class SecretService
     [DllImport(LibSecret, EntryPoint = "secret_password_free")]
     private static extern void SecretPasswordFree(IntPtr password);
     
-    public static Task<bool> SaveRefreshTokenAsync(string accountName, string token)
+    public Task<bool> SaveRefreshTokenAsync(string accountName, string token)
     {
         return Task.Run(() => SecretPasswordStoreSync(
-            schema: GogSchema,
+            schema: _gogSchema,
             collection: null, // Passing null automatically targets the "Login" default keyring
             label: $"Treasure Chest: GOG ({accountName})",
             password: token,
@@ -76,12 +71,12 @@ public static class SecretService
         ));
     }
     
-    public static Task<string?> GetRefreshTokenAsync(string accountName)
+    public Task<string?> GetRefreshTokenAsync(string accountName)
     {
         return Task.Run(() =>
         {
             var resultPtr = SecretPasswordLookupSync(
-                schema: GogSchema,
+                schema: _gogSchema,
                 cancellable: IntPtr.Zero,
                 error: out _,
                 attributeKey: "Account",  
@@ -99,10 +94,10 @@ public static class SecretService
         });
     }
 
-    public static Task<bool> ClearRefreshTokenAsync(string accountName)
+    public Task<bool> ClearRefreshTokenAsync(string accountName)
     {
         return Task.Run(() => SecretPasswordClearSync(
-            schema: GogSchema,
+            schema: _gogSchema,
             cancellable: IntPtr.Zero,
             error: out _,
             attributeKey: "Account", 
@@ -110,7 +105,18 @@ public static class SecretService
             endMarker: IntPtr.Zero
         ));
     }
+    
+    private static IntPtr CreateGogSchema()
+    {
+        return SecretSchemaNew(
+            GogSchemaName, 
+            SchemaFlagsNone, 
+            "Account", SchemaAttributeString, 
+            IntPtr.Zero
+        );
+    }
 
     // Properties:
+    public static SecretService Instance { get; } = new();
     public static string GogSchemaName => SettingsService.ApplicationId + "GogAccount";
 }

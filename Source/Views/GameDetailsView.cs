@@ -1,10 +1,11 @@
 using System.Text.RegularExpressions;
 using Adw;
 using Gtk;
-using TreasureChest.Source.Dialogs;
-using TreasureChest.Source.Helpers.GOG;
-using TreasureChest.Source.Services;
+using TreasureChest.Source.Helpers;
+using TreasureChest.Source.Helpers.GOG.Responses;
 using TreasureChest.Source.Services.Downloads;
+using TreasureChest.Source.Services.GOG;
+using TreasureChest.Source.Services.Library;
 using HeaderBar = Adw.HeaderBar;
 using Spinner = Gtk.Spinner;
 
@@ -15,23 +16,23 @@ public partial class GameDetailsView : IView
     // Private Members:
     private readonly MainWindow _parentWindow;
     private readonly Overlay _rootOverlay;
-    private readonly PreferencesGroup _dlcsGroup;
+    private readonly PreferencesGroup _dlcGroup;
     private readonly PreferencesGroup _extrasGroup;
     private readonly Label _descriptionLabel;
     private readonly MenuButton _installButton;
     
-    private readonly GameDetailsResponse _gameDetails;
-    private GameContentResponse? _contentDetails;
+    private readonly GameEntry _game;
+    private GameContentEntry? _content;
 
     private readonly Spinner _loadingSpinner;
     private readonly Box _contentBox;
 
     private string _fullGameDescription = string.Empty;
 
-    public GameDetailsView(MainWindow parentWindow, GameDetailsResponse gameDetails)
+    public GameDetailsView(MainWindow parentWindow, GameEntry game)
     {
         _parentWindow = parentWindow;
-        _gameDetails = gameDetails;
+        _game = game;
         
         _rootOverlay = Overlay.New();
         _rootOverlay.AddCssClass("background");
@@ -64,7 +65,7 @@ public partial class GameDetailsView : IView
         controlsBox.MarginEnd = 32;
         
         // The label for the game title:
-        var titleLabel = Label.New(_gameDetails.Title);
+        var titleLabel = Label.New(_game.Title);
         titleLabel.AddCssClass("title-1");
         titleLabel.Halign = Align.Start;
         titleLabel.Wrap = true;
@@ -141,10 +142,10 @@ public partial class GameDetailsView : IView
         _contentBox = Box.New(Orientation.Vertical, 24);
         _contentBox.Visible = false;
         
-        _dlcsGroup = PreferencesGroup.New();
-        _dlcsGroup.Title = "DLC's";
-        _dlcsGroup.Description = "Downloadable content for this game.";
-        _dlcsGroup.Visible = false;
+        _dlcGroup = PreferencesGroup.New();
+        _dlcGroup.Title = "DLC's";
+        _dlcGroup.Description = "Downloadable content for this game.";
+        _dlcGroup.Visible = false;
         
         _extrasGroup = PreferencesGroup.New();
         _extrasGroup.Title = "Extras";
@@ -153,7 +154,7 @@ public partial class GameDetailsView : IView
 
         _contentBox.Append(textCard);
         _contentBox.Append(readMoreButton);
-        _contentBox.Append(_dlcsGroup);
+        _contentBox.Append(_dlcGroup);
         _contentBox.Append(_extrasGroup);
 
         var centralLayout = Box.New(Orientation.Vertical, 0);
@@ -177,18 +178,18 @@ public partial class GameDetailsView : IView
         
         _rootOverlay.AddOverlay(headerBar);
         
-        _ = LoadImagesAsync(_gameDetails, pictureBg);
-        _ = FetchGameDetailsAsync();
+        _ = FetchGameContentAsync();
+        _ = LoadBackgroundImageAsync(pictureBg);
     }
 
     private void OpenFullDescriptionModal(string fullDescription)
     {
-        var test = 09;
+        
     }
     
-    private async Task LoadImagesAsync(GameDetailsResponse selectedGame, Picture bgPicture)
+    private async Task LoadBackgroundImageAsync(Picture bgPicture)
     {
-        var localBgImagePath = await ImagePrefetchService.FetchImageWithPriorityAsync(selectedGame.Id.ToString()!, EImageType.Background, selectedGame.Images?.Background);
+        var localBgImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(_game.Id, EImageType.Background, _game.ImageLinks.Background);
 
         if (!File.Exists(localBgImagePath))
             return;
@@ -196,21 +197,31 @@ public partial class GameDetailsView : IView
         bgPicture.SetFilename(localBgImagePath);
     }
     
-    private async Task FetchGameDetailsAsync()
+    private async Task FetchGameContentAsync()
     {
         try
         {
-            if (await GogServices.FetchGameContentDetails(_gameDetails) is not GameContentResponse gameContent || _gameDetails.Id is null)
+            if (await GogService.Instance.FetchGameContentDetails(_game) is not GogResponseGameContent gameContentResponse)
             {
                 _installButton.Label = "Game Unavailable";
                 _installButton.Sensitive = false;
                 return;
             }
         
-            SetupInstallButton(gameContent);
+            // Saving the game content data:
+            _content = GameContentEntry.TryCreate(gameContentResponse);
+
+            if (_content is null)
+            {
+                _installButton.Label = "Game Unavailable";
+                _installButton.Sensitive = false;
+                return;
+            }
+            
+            SetupInstallButton(_content);
         
             // Handling the description:
-            var productDescription = await GogServices.FetchGameDescriptionAsync(_gameDetails.Id.Value);
+            var productDescription = await GogService.Instance.FetchGameDescriptionAsync(_game.Id);
             var leadDescription = productDescription?.Description?.Lead ?? string.Empty;
 
             if (!string.IsNullOrWhiteSpace(leadDescription))
@@ -229,35 +240,23 @@ public partial class GameDetailsView : IView
             }
         
             // Handling the DLCs:
-            if (_gameDetails.DlcInformation is not null && _gameDetails.DlcInformation.HasDlc)
+            _dlcGroup.Visible = _content.Dlcs.Count > 0;
+
+            foreach (var dlcContent in _content.Dlcs)
             {
-                var dlcDetails = await GogServices.FetchGameDlcContentDetails(_gameDetails);
-
-                if (dlcDetails is not null && dlcDetails.Count != 0)
-                {
-                    foreach (var downloadInfo in dlcDetails)
-                    {
-                        var row = CreateDownloadRow(downloadInfo.Title!, downloadInfo.GameType!, "BlaBlaBla");
-                        _dlcsGroup.Add(row);
-                    }
-
-                    _dlcsGroup.Visible = true;
-                }
+                var languagesAvailable = string.Join(", ", dlcContent.Downloads.Keys);
+                
+                var row = CreateDownloadRow(dlcContent.Title, "DLC Content", languagesAvailable);
+                _dlcGroup.Add(row);
             }
 
             // Handling the extras:
-            if (gameContent.Extras is not null)
+            _extrasGroup.Visible = _content.Extras.Count > 0;
+            
+            foreach (var extraContent in _content.Extras)
             {
-                var hasExtras = false;
-            
-                foreach (var downloadInfo in gameContent.Extras)
-                {
-                    var row = CreateDownloadRow(downloadInfo.Name!, downloadInfo.Type!, downloadInfo.Size);
-                    _extrasGroup.Add(row);
-                    hasExtras = true;
-                }
-            
-                _extrasGroup.Visible = hasExtras;
+                var row = CreateDownloadRow(extraContent.Name, extraContent.Type, extraContent.Size);
+                _extrasGroup.Add(row);
             }
         }
         finally
@@ -307,32 +306,11 @@ public partial class GameDetailsView : IView
         row.AddSuffix(downloadButton);
         return row;
     }
-    
-    private List<DownloadInformation> ExtractDownloadsList(GameContentResponse gameContent)
-    {
-        if (gameContent.Downloads is null)
-            return [];
-        
-        var list = new List<DownloadInformation>();
 
-        foreach (var downloadLanguageGroup in gameContent.Downloads)
-        {
-            if (string.IsNullOrWhiteSpace(downloadLanguageGroup.Language) || 
-                !downloadLanguageGroup.Platforms.HasData)
-                continue;
-
-            list.Add(new DownloadInformation(downloadLanguageGroup));
-        }
-
-        return list;
-    }
-
-    private void SetupInstallButton(GameContentResponse contentDetails)
+    private void SetupInstallButton(GameContentEntry content)
     {
         _installButton.Sensitive = true;
         
-        var downloadsList = ExtractDownloadsList(contentDetails);
-
         var popover = Popover.New();
         
         var mainPopoverBox = Box.New(Orientation.Vertical, 4);
@@ -347,27 +325,27 @@ public partial class GameDetailsView : IView
         listBox.SelectionMode = SelectionMode.None;
         listBox.AddCssClass("boxed-list");
 
-        foreach (var downloadInformation in downloadsList)
+        foreach (var (languageString, availablePlatforms) in content.Downloads)
         {
             var expanderRow = ExpanderRow.New();
-            expanderRow.Title = downloadInformation.Language;
+            expanderRow.Title = languageString;
 
             var (windowsIcon, linuxIcon, macOsIcon) = LibraryView.LoadPlatformIcons();
             windowsIcon.Visible = false;
             linuxIcon.Visible = false;
             macOsIcon.Visible = false;
             
-            foreach (var supportedPlatform in downloadInformation.GetSupportedPlatforms())
+            foreach (var platform in availablePlatforms)
             {
-                switch (supportedPlatform)
+                switch (platform.Platform)
                 {
-                    case ESupportedPlatform.Windows:
+                    case ESystemPlatform.Windows:
                         windowsIcon.Visible = true;
                         break;
-                    case ESupportedPlatform.Linux:
+                    case ESystemPlatform.Linux:
                         linuxIcon.Visible = true;
                         break;
-                    case ESupportedPlatform.MacOs:
+                    case ESystemPlatform.MacOs:
                         macOsIcon.Visible = true;
                         break;
                     default:
@@ -375,15 +353,15 @@ public partial class GameDetailsView : IView
                 }
 
                 var platformRow = ActionRow.New();
-                platformRow.Title = $"Download for {supportedPlatform.ToString()}";
-                platformRow.Subtitle = $"{downloadInformation.GetDownloadsForPlatform(supportedPlatform).Count} file(s)";
+                platformRow.Title = $"Download for {platform.Platform.ToString()}";
+                platformRow.Subtitle = $"{platform.Items.Count} file(s)";
                 platformRow.Activatable = true;
                 platformRow.Halign = Align.Fill;
 
                 platformRow.OnActivated += (_, _) =>
                 {
                     popover.Popdown();
-                    HandleStartDownloads(downloadInformation, supportedPlatform);
+                    HandleStartDownloads(languageString, platform);
                 };
                 
                 expanderRow.AddRow(platformRow);
@@ -406,41 +384,39 @@ public partial class GameDetailsView : IView
         _installButton.Popover = popover;
     }
 
-    private async void HandleStartDownloads(DownloadInformation downloadInformation, ESupportedPlatform platform)
+    private async void HandleStartDownloads(string language, PlatformContent platformContent)
     {
         // Fetching the list of files:
-        var fileList = downloadInformation.GetDownloadsForPlatform(platform);
-
-        if (fileList.Count == 0)
+        if (platformContent.Items.Count == 0)
             return;
 
-        var fileCountStr = $"{fileList.Count} file";
+        var fileCountStr = $"{platformContent.Items.Count} file";
 
-        if (fileList.Count > 1)
+        if (platformContent.Items.Count > 1)
         {
             fileCountStr += "s";
         }
         
         // Queueing the download of all files:
-        foreach (var fileInformation in fileList)
+        foreach (var downloadItem in platformContent.Items)
         {
             try
             {
-                var finalUrl = await GogServices.ResolveFinalDownloadUrlAsync(fileInformation.ManualUrl);
+                var finalUrl = await GogService.Instance.ResolveFinalDownloadUrlAsync(downloadItem.ManualUrl);
                 var uri = new Uri(finalUrl);
                 var fileName = Path.GetFileName(uri.AbsolutePath);
                 
                 if (string.IsNullOrWhiteSpace(fileName))
                 {
-                    fileName = $"{_gameDetails.Title?.Replace(" ", "_")}_{platform.ToString()}.bin";
+                    fileName = $"{_game.Title.Replace(" ", "_")}_{platformContent.Platform.ToString()}.bin";
                 }
             
-                await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {fileInformation.ManualUrl}");
+                await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {downloadItem.ManualUrl}");
                 await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
 
                 await DownloadQueueService.Instance.EnqueueDownload(
-                    title: $"{fileInformation.FileName} ({fileInformation.Size})",
-                    _gameDetails.Slug ?? string.Empty,
+                    title: $"{downloadItem.Name} ({downloadItem.Size})",
+                    _game.Slug,
                     url: finalUrl,
                     targetFileName: fileName
                 );
@@ -456,7 +432,7 @@ public partial class GameDetailsView : IView
             }
         }
         
-        _parentWindow.ShowToastNotification($"Queued '{_gameDetails.Title}', in {downloadInformation.Language}, for {platform.ToString()} [{fileCountStr}]");
+        _parentWindow.ShowToastNotification($"Queued '{_game.Title}', in {language}, for {platformContent.Platform.ToString()} [{fileCountStr}]");
     }
     
     private static string CleanHtmlDescription(string html)

@@ -1,4 +1,4 @@
-namespace TreasureChest.Source.Helpers.GOG;
+namespace TreasureChest.Source.Helpers;
 
 public enum EMainWindowTabs
 {

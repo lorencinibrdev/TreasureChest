@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Adw;
 using Gtk;
-using TreasureChest.Source.Helpers.GOG;
+using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.Runners;
 using Spinner = Gtk.Spinner;
