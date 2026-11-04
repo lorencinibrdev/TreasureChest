@@ -2,6 +2,7 @@ using Adw;
 using Cairo;
 using Gdk;
 using Gtk;
+using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services.Downloads;
 
 namespace TreasureChest.Source.Widgets;
@@ -96,7 +97,7 @@ public class DownloadsPopover
     private void HandleDownloadAdded(DownloadTask task)
     {
         var row = ActionRow.New();
-        row.Title = task.Title;
+        row.Title = task.Title.EscapeMarkup();
         row.Subtitle = "Starting...";
 
         var progressBar = ProgressBar.New();
