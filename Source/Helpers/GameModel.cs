@@ -4,6 +4,14 @@ using Object = GObject.Object;
 
 namespace TreasureChest.Source.Helpers;
 
+public enum EGameState
+{
+    Available,
+    Downloading,
+    Downloaded,
+    Installed
+}
+
 [Subclass<Object>]
 public partial class GameModel
 {
@@ -25,6 +33,5 @@ public partial class GameModel
     public string Title { get; private set; } = string.Empty;
     public string LogoPath { get; private set; } = string.Empty;
     public string IconPath { get; private set; } = string.Empty;
-    public bool IsInstalled { get; set; } = false;
     public SystemCompatibility SystemCompatibility { get; private set; }
 }

@@ -6,6 +6,7 @@ using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.GOG;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views;
+using TreasureChest.Source.Views.Library;
 using TreasureChest.Source.Widgets;
 using Application = Adw.Application;
 using ApplicationWindow = Adw.ApplicationWindow;
@@ -142,7 +143,8 @@ public partial class MainWindow
         
         _parentApplication.SetAccelsForAction("win.preferences", ["<Ctrl>comma"]);
 
-        var librarySortAndViewControls = _libraryView.CreateViewSortControls();
+        var libraryViewButton = _libraryView.CreateViewChangeButton();
+        var librarySortAndFilterButton = _libraryView.CreateSortAndFilterButton();
 
         var searchButton = Button.NewFromIconName("edit-find-symbolic");
         menuButton.SetTooltipText("Search");
@@ -154,7 +156,8 @@ public partial class MainWindow
         _ = new DownloadsPopover(downloadMenuButton);
         
         headerBar.PackEnd(menuButton);
-        headerBar.PackEnd(librarySortAndViewControls);
+        headerBar.PackEnd(librarySortAndFilterButton);
+        headerBar.PackEnd(libraryViewButton);
         headerBar.PackEnd(searchButton);
         headerBar.PackEnd(downloadMenuButton);
 

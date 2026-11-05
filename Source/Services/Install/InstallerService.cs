@@ -1,12 +1,21 @@
+using System.Text.Json;
 using TreasureChest.Source.Helpers.GOG.Responses;
 
 namespace TreasureChest.Source.Services.Install;
 
 public class InstallerService
 {
+    // Private Members:
+    private readonly JsonSerializerOptions _serializerOptions;
+    
     private InstallerService()
     {
+        _serializerOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true
+        };
         
+        Directory.CreateDirectory(ManifestsDirectory);
     }
 
     public async Task<bool> InstallAsync(GogResponseGameDetails gameInformation, string sourceFolderPath)
@@ -32,26 +41,38 @@ public class InstallerService
         return true;
     }
 
-    private (EGameInstallationType, string setupFilePath) IdentifyGameInstallationType(string sourceFolderPath)
+    public bool IsGameInstalled(string gameSlug)
+    {
+        return false;
+    }
+
+    public void RegisterInstallation(InstalledGameManifest manifest)
+    {
+        var manifestPath = Path.Combine(ManifestsDirectory, $"{manifest.Slug}.json");
+        var json = JsonSerializer.Serialize(manifest, _serializerOptions);
+        File.WriteAllText(manifestPath, json);
+    }
+
+    public static (EGameInstallationType, string setupFilePath) IdentifyGameInstallationType(string sourceFolderPath)
     {
         if (!Directory.Exists(sourceFolderPath))
             return (EGameInstallationType.Unknown, string.Empty);
         
         // Checking for linux first:
-        var linuxInstallers = Directory.EnumerateFiles(sourceFolderPath, "*.sh")
-            .Where(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith("gog_"))
-            .ToList();
+        var linuxInstaller = Directory
+            .EnumerateFiles(sourceFolderPath, "*.sh")
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith("gog_"));
 
-        if (linuxInstallers.Count != 0)
-            return (EGameInstallationType.LinuxNative, linuxInstallers.First());
+        if (!string.IsNullOrWhiteSpace(linuxInstaller))
+            return (EGameInstallationType.LinuxNative, linuxInstaller);
         
         // If not found, falling back to windows installs:
-        var windowsInstallers = Directory.EnumerateFiles(sourceFolderPath, "*.exe")
-            .Where(f => Path.GetFileName(f).StartsWith("setup_"))
-            .ToList();
+        var windowsInstaller = Directory
+            .EnumerateFiles(sourceFolderPath, "*.exe")
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_"));
 
-        if (windowsInstallers.Count != 0)
-            return (EGameInstallationType.WindowsInstaller, windowsInstallers.First());
+        if (!string.IsNullOrWhiteSpace(windowsInstaller))
+            return (EGameInstallationType.WindowsInstaller, windowsInstaller);
         
         //TODO: Handle MacOS!
         return (EGameInstallationType.Unknown, string.Empty);
@@ -59,4 +80,5 @@ public class InstallerService
     
     // Properties:
     public static InstallerService Instance { get; } = new();
+    private string ManifestsDirectory => Path.Combine(SettingsService.DataDirectory, "InstallationManifests");
 }

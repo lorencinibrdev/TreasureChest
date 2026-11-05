@@ -18,7 +18,7 @@ public class DownloadQueueService
         };
     }
 
-    public async Task<DownloadTask> EnqueueDownload(string title, string slug, string url, string targetFileName)
+    public async Task<DownloadTask> EnqueueDownload(long gameId, string title, string slug, string url, string targetFileName)
     {
         var targetDir = Path.Join(SettingsService.Instance.DownloadsFolder, slug);
 
@@ -29,6 +29,7 @@ public class DownloadQueueService
 
         var task = new DownloadTask
         {
+            GameId = gameId,
             Title = title,
             DownloadUrl = url,
             TargetFileName = targetFileName,
@@ -43,6 +44,20 @@ public class DownloadQueueService
         NotifyUi(() => TaskAdded?.Invoke(task));
         _ = ProcessTaskAsync(task);
         return task;
+    }
+
+    public bool IsDownloadingGame(long gameId)
+    {
+        return _allTasks.Any(t =>
+            t.GameId == gameId && t.Status 
+                is EDownloadStatus.Queued
+                or EDownloadStatus.Downloading 
+                or EDownloadStatus.Validating);
+    }
+
+    public IEnumerable<DownloadTask> GetTasksForGame(long gameId)
+    {
+        return _allTasks.Where(t => t.GameId == gameId);
     }
 
     private async Task ProcessTaskAsync(DownloadTask task)

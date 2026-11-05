@@ -24,9 +24,11 @@
             <choices>
                 <choice value="grid"/>
                 <choice value="list"/>
+                <choice value="gridcompact"/>
+                <choice value="listcompact"/>
             </choices>
             <default>'grid'</default>
-            <summary>Preferred view mode (grid or list)</summary>
+            <summary>Preferred view mode (Grid or List), and Compact or Spacious views</summary>
         </key>
         <key name="startup-default-view" type="s">
             <choices>

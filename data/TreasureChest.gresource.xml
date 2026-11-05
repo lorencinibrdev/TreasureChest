@@ -11,5 +11,13 @@
         <file>icons/ui-symbolic.svg</file>
         <file>icons/external-link-symbolic.svg</file>
         <file>icons/circle-check-cross-symbolic.svg</file>
+        <file>icons/cloud-symbolic.svg</file>
+        <file>icons/folder-download-symbolic.svg</file>
+        
+        
+        <file>icons/view-list-symbolic.svg</file>
+        <file>icons/view-list-compact-symbolic.svg</file>
+        <file>icons/view-grid-symbolic.svg</file>
+        <file>icons/view-grid-compact-symbolic.svg</file>
     </gresource>
 </gresources>

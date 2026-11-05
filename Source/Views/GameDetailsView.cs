@@ -5,7 +5,9 @@ using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Helpers.GOG.Responses;
 using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.GOG;
+using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Library;
+using TreasureChest.Source.Views.Library;
 using HeaderBar = Adw.HeaderBar;
 using Spinner = Gtk.Spinner;
 
@@ -309,6 +311,27 @@ public partial class GameDetailsView : IView
 
     private void SetupInstallButton(GameContentEntry content)
     {
+        if (InstallerService.Instance.IsGameInstalled(_game.Slug))
+        {
+            _installButton.Sensitive = true;
+            _installButton.Label = "Play!";
+            _installButton.IconName = "media-playback-start-symbolic";
+            return;
+        }
+        
+        // Any downloads ongoing for this game?
+        if (DownloadQueueService.Instance.IsDownloadingGame(_game.Id))
+        {
+            _installButton.Sensitive = false;
+            _installButton.Label = "Downloading...";
+            _installButton.IconName = "object-select-symbolic";
+            return;
+        }
+        
+        // IF there's no downloads, checking if the game is already installed:
+        
+        
+        // Finally, checking the available installation content for the game:
         _installButton.Sensitive = true;
         
         var popover = Popover.New();
@@ -414,7 +437,8 @@ public partial class GameDetailsView : IView
                 await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {downloadItem.ManualUrl}");
                 await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
 
-                await DownloadQueueService.Instance.EnqueueDownload(
+                var downloadTask = await DownloadQueueService.Instance.EnqueueDownload(
+                    gameId: _game.Id,
                     title: $"{downloadItem.Name} ({downloadItem.Size})",
                     _game.Slug,
                     url: finalUrl,
@@ -432,7 +456,7 @@ public partial class GameDetailsView : IView
             }
         }
         
-        _parentWindow.ShowToastNotification($"Queued '{_game.Title}', in {language}, for {platformContent.Platform.ToString()} [{fileCountStr}]");
+        _parentWindow.ShowToastNotification($"Queued '{_game.Title.EscapeMarkup()}', in {language}, for {platformContent.Platform.ToString()} [{fileCountStr}]");
     }
     
     private static string CleanHtmlDescription(string html)

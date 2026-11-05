@@ -4,6 +4,7 @@ public class DownloadTask
 {
     // Properties:
     public string Id { get; } = Guid.NewGuid().ToString();
+    public required long GameId { get; init; }
     public string Title { get; init; } = string.Empty;
     public string DownloadUrl { get; init; } = string.Empty;
     public string TargetFileName { get; init; } = string.Empty;
