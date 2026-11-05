@@ -15,7 +15,7 @@ public class LibraryView : IView
     private readonly Gio.ListStore _store;
     private readonly Stack _mainStack;
     private readonly Stack _viewTypeStack;
-    private readonly Dictionary<ELibraryViewMode, ILibraryViewMode> _loadedViews = [];
+    private readonly Dictionary<ELibraryViewMode, IView> _loadedViews = [];
     private readonly SingleSelection _selectionModel;
     private readonly SortListModel _sortModel;
     private readonly CustomSorter _sorter;
@@ -323,13 +323,13 @@ public class LibraryView : IView
                 _ => throw new ArgumentOutOfRangeException(nameof(viewMode), viewMode, null)
             };
             
-            _viewTypeStack.AddNamed(targetView.RootWidget, targetView.ViewName);
+            _viewTypeStack.AddNamed(targetView.RootWidget, targetView.Identifier);
             _loadedViews.Add(viewMode, targetView);
         }
         
         SettingsService.Instance.ViewMode = viewMode;
-        _viewTypeStack.SetVisibleChildName(targetView.ViewName);
-        Console.WriteLine($"[INFO] - Changing LibraryViewMode: '{targetView.ViewName}' ({_loadedViews.Count} in cache)");
+        _viewTypeStack.SetVisibleChildName(targetView.Identifier);
+        Console.WriteLine($"[INFO] - Changing LibraryViewMode: '{targetView.Identifier}' ({_loadedViews.Count} in cache)");
     }
 
     public static (Image WindowsIcon, Image LinuxIcon, Image MacOsIcon) LoadPlatformIcons()

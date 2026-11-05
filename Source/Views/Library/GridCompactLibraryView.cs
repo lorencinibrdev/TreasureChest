@@ -5,7 +5,7 @@ using TreasureChest.Source.Services.Library;
 
 namespace TreasureChest.Source.Views.Library;
 
-public class GridCompactLibraryView : ILibraryViewMode
+public class GridCompactLibraryView : IView
 {
     public GridCompactLibraryView(LibraryView parent, SingleSelection selectionModel, SortListModel sortModel)
     {
@@ -85,65 +85,72 @@ public class GridCompactLibraryView : ILibraryViewMode
     
     private static async void OnGridFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
     {
-        var listItem = (ListItem)args.Object;
-        var game = (GameModel)listItem.Item!;
-        var mainBox = (Box)listItem.Child!;
-        
-        // Fetching the widgets from the layout hierarchy:
-        var imageOverlay = (Overlay)mainBox.GetFirstChild()!;
-        var label = (Label)imageOverlay.GetNextSibling()!;
-        var picture = (Picture)imageOverlay.GetFirstChild()!;
-        var badgeButton = (Button)picture.GetNextSibling()!;
-        var downloadingSpinner = (Adw.Spinner)badgeButton.GetNextSibling()!;
-        
-        label.SetText(game.Title);
-        picture.SetFile(null);
-
-        var currentGameState = LibraryService.Instance.GetGameState(game.Id);
-
-        switch (currentGameState)
+        try
         {
-            case EGameState.Downloading:
-                picture.Opacity = 0.5;
-                badgeButton.Visible = false;
-                downloadingSpinner.Visible = true;
-                mainBox.TooltipText = "Downloading Game...";
-                break;
-            case EGameState.Downloaded:
-                picture.Opacity = 0.8;
-                badgeButton.Visible = true;
-                badgeButton.IconName = "folder-download-symbolic";
-                downloadingSpinner.Visible = false;
-                mainBox.TooltipText = "Game is Downloaded, and ready to install.";
-                break;
-            case EGameState.Installed:
-                picture.Opacity = 1.0;
-                badgeButton.Visible = false;
-                downloadingSpinner.Visible = false;
-                mainBox.TooltipText = "Game is Installed, and ready to play.";
-                break;
-            case EGameState.Available:
-            default:
-                picture.Opacity = 0.3;
-                badgeButton.Visible = true;
-                badgeButton.IconName = "cloud-symbolic";
-                downloadingSpinner.Visible = false;
-                mainBox.TooltipText = "Game is available for download.";
-                break;
+            var listItem = (ListItem)args.Object;
+            var game = (GameModel)listItem.Item!;
+            var mainBox = (Box)listItem.Child!;
+        
+            // Fetching the widgets from the layout hierarchy:
+            var imageOverlay = (Overlay)mainBox.GetFirstChild()!;
+            var label = (Label)imageOverlay.GetNextSibling()!;
+            var picture = (Picture)imageOverlay.GetFirstChild()!;
+            var badgeButton = (Button)picture.GetNextSibling()!;
+            var downloadingSpinner = (Adw.Spinner)badgeButton.GetNextSibling()!;
+        
+            label.SetText(game.Title);
+            picture.SetFile(null);
+
+            var currentGameState = LibraryService.Instance.GetGameState(game.Id);
+
+            switch (currentGameState)
+            {
+                case EGameState.Downloading:
+                    picture.Opacity = 0.5;
+                    badgeButton.Visible = false;
+                    downloadingSpinner.Visible = true;
+                    mainBox.TooltipText = "Downloading Game...";
+                    break;
+                case EGameState.Downloaded:
+                    picture.Opacity = 0.8;
+                    badgeButton.Visible = true;
+                    badgeButton.IconName = "folder-download-symbolic";
+                    downloadingSpinner.Visible = false;
+                    mainBox.TooltipText = "Game is Downloaded, and ready to install.";
+                    break;
+                case EGameState.Installed:
+                    picture.Opacity = 1.0;
+                    badgeButton.Visible = false;
+                    downloadingSpinner.Visible = false;
+                    mainBox.TooltipText = "Game is Installed, and ready to play.";
+                    break;
+                case EGameState.Available:
+                default:
+                    picture.Opacity = 0.3;
+                    badgeButton.Visible = true;
+                    badgeButton.IconName = "cloud-symbolic";
+                    downloadingSpinner.Visible = false;
+                    mainBox.TooltipText = "Game is available for download.";
+                    break;
+            }
+
+            var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.Logo, game.LogoPath);
+
+            if (listItem.Item != game) 
+                return;
+        
+            if (File.Exists(localImagePath))
+            {
+                picture.SetFilename(localImagePath);
+            }
         }
-
-        var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.Logo, game.LogoPath);
-
-        if (listItem.Item != game) 
-            return;
-        
-        if (File.Exists(localImagePath))
+        catch (Exception)
         {
-            picture.SetFilename(localImagePath);
+            // ignored
         }
     }
 
     // Properties:
-    public string ViewName => "GridCompactView";
+    public string Identifier => "GridCompactView";
     public Widget RootWidget { get; }
 }

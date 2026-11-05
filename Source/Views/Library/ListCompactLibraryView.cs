@@ -5,7 +5,7 @@ using TreasureChest.Source.Services.Library;
 
 namespace TreasureChest.Source.Views.Library;
 
-public class ListCompactLibraryView : ILibraryViewMode
+public class ListCompactLibraryView : IView
 {
     public ListCompactLibraryView(LibraryView parent, SingleSelection selectionModel, SortListModel sortModel)
     {
@@ -82,71 +82,76 @@ public class ListCompactLibraryView : ILibraryViewMode
 
     private static async void OnListFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
     {
-        var listItem = (ListItem)args.Object;
-        var game = (GameModel)listItem.Item!;
-        var rowBox = (Box)listItem.Child!;
+        try
+        {
+            var listItem = (ListItem)args.Object;
+            var game = (GameModel)listItem.Item!;
+            var rowBox = (Box)listItem.Child!;
 
-        var picture = (Picture)rowBox.GetFirstChild()!;
-        var label = (Label)picture.GetNextSibling()!;
-        var platformBox = (Box)label.GetNextSibling()!;
+            var picture = (Picture)rowBox.GetFirstChild()!;
+            var label = (Label)picture.GetNextSibling()!;
+            var platformBox = (Box)label.GetNextSibling()!;
         
-        var windowsIcon = (Image)platformBox.GetFirstChild()!;
-        var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
-        var macosIcon = (Image)linuxIcon.GetNextSibling()!;
-        var gameStateIcon = (Image)platformBox.GetNextSibling()!;
-        var downloadingSpinner = (Adw.Spinner)gameStateIcon.GetNextSibling()!;
+            var windowsIcon = (Image)platformBox.GetFirstChild()!;
+            var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
+            var macosIcon = (Image)linuxIcon.GetNextSibling()!;
+            var gameStateIcon = (Image)platformBox.GetNextSibling()!;
+            var downloadingSpinner = (Adw.Spinner)gameStateIcon.GetNextSibling()!;
 
-        windowsIcon.Visible = game.SystemCompatibility.Windows;
-        linuxIcon.Visible = game.SystemCompatibility.Linux;
-        macosIcon.Visible = game.SystemCompatibility.MacOs;
+            windowsIcon.Visible = game.SystemCompatibility.Windows;
+            linuxIcon.Visible = game.SystemCompatibility.Linux;
+            macosIcon.Visible = game.SystemCompatibility.MacOs;
 
-        label.SetText(game.Title);
-        picture.SetFile(null);
+            label.SetText(game.Title);
+            picture.SetFile(null);
 
-        var currentGameState = LibraryService.Instance.GetGameState(game.Id);
+            var currentGameState = LibraryService.Instance.GetGameState(game.Id);
 
-        currentGameState = EGameState.Downloading;
+            switch (currentGameState)
+            {
+                case EGameState.Downloading:
+                    picture.Opacity = 0.5;
+                    gameStateIcon.Visible = false;
+                    downloadingSpinner.Visible = true;
+                    rowBox.TooltipText = "Downloading Game...";
+                    break;
+                case EGameState.Downloaded:
+                    picture.Opacity = 0.8;
+                    gameStateIcon.Visible = true;
+                    gameStateIcon.IconName = "folder-download-symbolic";
+                    downloadingSpinner.Visible = false;
+                    rowBox.TooltipText = "Game is Downloaded, and ready to install.";
+                    break;
+                case EGameState.Installed:
+                    picture.Opacity = 1.0;
+                    gameStateIcon.Visible = false;
+                    downloadingSpinner.Visible = false;
+                    rowBox.TooltipText = "Game is Installed, and ready to play.";
+                    break;
+                case EGameState.Available:
+                default:
+                    picture.Opacity = 0.3;
+                    gameStateIcon.Visible = true;
+                    gameStateIcon.IconName = "cloud-symbolic";
+                    downloadingSpinner.Visible = false;
+                    rowBox.TooltipText = "Game is available for download.";
+                    break;
+            }
 
-        switch (currentGameState)
-        {
-            case EGameState.Downloading:
-                picture.Opacity = 0.5;
-                gameStateIcon.Visible = false;
-                downloadingSpinner.Visible = true;
-                rowBox.TooltipText = "Downloading Game...";
-                break;
-            case EGameState.Downloaded:
-                picture.Opacity = 0.8;
-                gameStateIcon.Visible = true;
-                gameStateIcon.IconName = "folder-download-symbolic";
-                downloadingSpinner.Visible = false;
-                rowBox.TooltipText = "Game is Downloaded, and ready to install.";
-                break;
-            case EGameState.Installed:
-                picture.Opacity = 1.0;
-                gameStateIcon.Visible = false;
-                downloadingSpinner.Visible = false;
-                rowBox.TooltipText = "Game is Installed, and ready to play.";
-                break;
-            case EGameState.Available:
-            default:
-                picture.Opacity = 0.3;
-                gameStateIcon.Visible = true;
-                gameStateIcon.IconName = "cloud-symbolic";
-                downloadingSpinner.Visible = false;
-                rowBox.TooltipText = "Game is available for download.";
-                break;
+            var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.SidebarIcon2X, game.IconPath);
+
+            if (listItem.Item == game && File.Exists(localImagePath))
+            {
+                picture.SetFilename(localImagePath);
+            }
         }
-
-        var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.SidebarIcon2X, game.IconPath);
-
-        if (listItem.Item == game && File.Exists(localImagePath))
+        catch (Exception)
         {
-            picture.SetFilename(localImagePath);
+            // ignored
         }
     }
     
     // Properties:
-    public string ViewName => "ListCompactView";
+    public string Identifier => "ListCompactView";
     public Widget RootWidget { get; }
 }
