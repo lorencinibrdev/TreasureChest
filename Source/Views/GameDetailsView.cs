@@ -1,11 +1,8 @@
-using System.Text.RegularExpressions;
 using Adw;
 using Gtk;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Helpers.GOG.Responses;
 using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.GOG;
-using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views.Library;
 using HeaderBar = Adw.HeaderBar;
@@ -13,7 +10,7 @@ using Spinner = Gtk.Spinner;
 
 namespace TreasureChest.Source.Views;
 
-public partial class GameDetailsView : IView
+public class GameDetailsView : IView
 {
     // Private Members:
     private readonly MainWindow _parentWindow;
@@ -21,14 +18,13 @@ public partial class GameDetailsView : IView
     private readonly PreferencesGroup _dlcGroup;
     private readonly PreferencesGroup _extrasGroup;
     private readonly Label _descriptionLabel;
-    private readonly MenuButton _installButton;
+    private readonly Stack _mainButtonStack;
     
     private readonly GameEntry _game;
-    private GameContentEntry? _content;
+    private GameContentEntry? _gameContent;
 
     private readonly Spinner _loadingSpinner;
     private readonly Box _contentBox;
-
     private string _fullGameDescription = string.Empty;
 
     public GameDetailsView(MainWindow parentWindow, GameEntry game)
@@ -71,17 +67,8 @@ public partial class GameDetailsView : IView
         titleLabel.AddCssClass("title-1");
         titleLabel.Halign = Align.Start;
         titleLabel.Wrap = true;
-
-        _installButton = MenuButton.New();
-        _installButton.Label = "Install";
-        _installButton.AddCssClass("suggested-action");
-        _installButton.AddCssClass("pill");
-        _installButton.Halign = Align.Start;
-        _installButton.SetSizeRequest(140, -1);
-        _installButton.Sensitive = false;
         
         controlsBox.Append(titleLabel);
-        controlsBox.Append(_installButton);
         overlay.AddOverlay(controlsBox);
         scrollableBox.Append(overlay);
         
@@ -179,11 +166,146 @@ public partial class GameDetailsView : IView
         headerBar.PackStart(backButton);
         
         _rootOverlay.AddOverlay(headerBar);
-        
         _ = FetchGameContentAsync();
         _ = LoadBackgroundImageAsync(pictureBg);
+
+        _mainButtonStack = Stack.New();
+        _mainButtonStack.TransitionType = StackTransitionType.Crossfade;
+        _mainButtonStack.Halign = Align.Start;
+        
+        UpdateMainButtonStack();
+        
+        controlsBox.Append(_mainButtonStack);
+            
+        LibraryService.Instance.GameStateChanged += HandleGameStateChanged;
+        DownloadQueueService.Instance.TaskUpdated += HandleDownloadProgressUpdate;
+        
+        RootWidget.OnUnrealize += (_, _) =>
+        {
+            LibraryService.Instance.GameStateChanged -= HandleGameStateChanged;
+            DownloadQueueService.Instance.TaskUpdated -= HandleDownloadProgressUpdate;
+        };
     }
 
+    private void HandleDownloadProgressUpdate(DownloadTask downloadTask)
+    {
+        if (downloadTask.GameId != _game.Id)
+            return;
+        
+        GLib.Functions.IdleAdd(0, () =>
+        {
+            if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloading)) is not ProgressBar progressBar)
+                return false;
+            
+            progressBar.Fraction = downloadTask.Progress;
+            progressBar.Text = $"{downloadTask.Progress:0.1}%";
+
+            return false;
+        });
+    }
+
+    private void HandleGameStateChanged(long gameId, EGameState newState)
+    {
+        if (_game.Id != gameId)
+            return;
+        
+        GLib.Functions.IdleAdd(0, () =>
+        {
+            _mainButtonStack.SetVisibleChildName(newState.ToString());
+            return false;
+        });
+    }
+
+    private void UpdateMainButtonStack()
+    {
+        // Checking the current state of the game:
+        var currentGameState = LibraryService.Instance.GetGameState(_game.Id);
+
+        // Do we have the play button already?
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Installed)) is not SplitButton)
+        {
+            // The button:
+            var playSplitButton = SplitButton.New();
+            playSplitButton.Label = "Play!";
+            playSplitButton.AddCssClass("suggested-action");
+            playSplitButton.AddCssClass("pill");
+            
+            // The menu button, with the popover options:
+            var installedGameOptionsPopover = Popover.New();
+            var installedGameOptionsBox = Box.New(Orientation.Vertical, 0);
+            installedGameOptionsBox.Append(Button.NewWithLabel("Uninstall"));
+            installedGameOptionsBox.Append(Button.NewWithLabel("Change Launch Parameters"));
+            installedGameOptionsPopover.Child = installedGameOptionsBox;
+            
+            playSplitButton.Popover = installedGameOptionsPopover;
+            playSplitButton.OnClicked += (_, _) => Console.Out.WriteLine("[INFO] - Launching game...");
+
+            _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
+        }
+        
+        // Now, checking for the available state:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Available)) is not MenuButton)
+        {
+            // The download options MenuButton, with it's popover:
+            var downloadMenuButton = MenuButton.New();
+            downloadMenuButton.Label = "Download";
+            downloadMenuButton.AddCssClass("suggested-action");
+            downloadMenuButton.AddCssClass("pill");
+            downloadMenuButton.Sensitive = false;
+            
+            _mainButtonStack.AddNamed(downloadMenuButton, nameof(EGameState.Available));
+        }
+        
+        // Checking for the downloaded state:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloaded)) is not SplitButton)
+        {
+            // The button:
+            var installSplitButton = SplitButton.New();
+            installSplitButton.Label = "Install Game";
+            installSplitButton.AddCssClass("suggested-action");
+            installSplitButton.AddCssClass("pill");
+            
+            // The menu button, with the popover options:
+            var downloadedGameOptionsPopover = Popover.New();
+            var downloadedGameOptionsBox = Box.New(Orientation.Vertical, 6);
+            downloadedGameOptionsBox.Append(Button.NewWithLabel("Clear Downloaded Data"));
+            downloadedGameOptionsPopover.Child = downloadedGameOptionsBox;
+            
+            installSplitButton.Popover = downloadedGameOptionsPopover;
+            installSplitButton.OnClicked += (_, _) => Console.Out.WriteLine("[INFO] - Installing game...");
+
+            _mainButtonStack.AddNamed(installSplitButton, nameof(EGameState.Downloaded));
+        }
+        
+        // Checking for the downloading state:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloading)) is not ProgressBar)
+        {
+            var downloadProgressBar = ProgressBar.New();
+            downloadProgressBar.ShowText = true;
+            downloadProgressBar.MarginTop = 8;
+            downloadProgressBar.MarginBottom = 8;
+            downloadProgressBar.Vexpand = false;
+
+            _mainButtonStack.AddNamed(downloadProgressBar, nameof(EGameState.Downloading));
+        }
+        
+        // Checking for the installing state:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Installing)) is not ProgressBar)
+        {
+            var installProgressBar = ProgressBar.New();
+            installProgressBar.Text = "Installing...";
+            installProgressBar.ShowText = true;
+            installProgressBar.MarginTop = 8;
+            installProgressBar.MarginBottom = 8;
+            installProgressBar.Vexpand = false;
+            installProgressBar.Pulse();
+
+            _mainButtonStack.AddNamed(installProgressBar, nameof(EGameState.Installing));
+        }
+        
+        _mainButtonStack.SetVisibleChildName(currentGameState.ToString());
+    }
+    
     private void OpenFullDescriptionModal(string fullDescription)
     {
         
@@ -198,157 +320,39 @@ public partial class GameDetailsView : IView
         
         bgPicture.SetFilename(localBgImagePath);
     }
-    
+
     private async Task FetchGameContentAsync()
     {
-        try
-        {
-            if (await GogService.Instance.FetchGameContentDetails(_game) is not GogResponseGameContent gameContentResponse)
-            {
-                _installButton.Label = "Game Unavailable";
-                _installButton.Sensitive = false;
-                return;
-            }
-        
-            // Saving the game content data:
-            _content = GameContentEntry.TryCreate(gameContentResponse);
+        var responseGameContent = await GogService.Instance.FetchGameContentDetails(_game);
+        _gameContent = GameContentEntry.TryCreate(responseGameContent);
 
-            if (_content is null)
-            {
-                _installButton.Label = "Game Unavailable";
-                _installButton.Sensitive = false;
-                return;
-            }
-            
-            SetupInstallButton(_content);
-        
-            // Handling the description:
-            var productDescription = await GogService.Instance.FetchGameDescriptionAsync(_game.Id);
-            var leadDescription = productDescription?.Description?.Lead ?? string.Empty;
-
-            if (!string.IsNullOrWhiteSpace(leadDescription))
-            {
-                _fullGameDescription = CleanHtmlDescription(leadDescription);
-
-                var previewText = _fullGameDescription;
-
-                if (_fullGameDescription.Length > 350)
-                {
-                    var cutoffIndex = _fullGameDescription.LastIndexOf(' ', 350);
-                    previewText = (cutoffIndex > 0 ? _fullGameDescription[..cutoffIndex] : _fullGameDescription[..350]) + "...";
-                }
-                
-                _descriptionLabel.SetText(CleanHtmlDescription(previewText));
-            }
-        
-            // Handling the DLCs:
-            _dlcGroup.Visible = _content.Dlcs.Count > 0;
-
-            foreach (var dlcContent in _content.Dlcs)
-            {
-                var languagesAvailable = string.Join(", ", dlcContent.Downloads.Keys);
-                
-                var row = CreateDownloadRow(dlcContent.Title, "DLC Content", languagesAvailable);
-                _dlcGroup.Add(row);
-            }
-
-            // Handling the extras:
-            _extrasGroup.Visible = _content.Extras.Count > 0;
-            
-            foreach (var extraContent in _content.Extras)
-            {
-                var row = CreateDownloadRow(extraContent.Name, extraContent.Type, extraContent.Size);
-                _extrasGroup.Add(row);
-            }
-        }
-        finally
-        {
-            _loadingSpinner.Spinning = false;
-            _loadingSpinner.Visible = false;
-            _contentBox.Visible = true;
-        }
-    }
-
-    private ActionRow CreateDownloadRow(string title, string typeLabel, string? size)
-    {
-        var row = ActionRow.New();
-
-        row.Title = System.Security.SecurityElement.Escape(title);
-        
-        if (!string.IsNullOrWhiteSpace(size))
-        {
-            row.Subtitle = System.Security.SecurityElement.Escape(size);
-        }
-
-        var pillBox = Box.New(Orientation.Horizontal, 0);
-        pillBox.AddCssClass("card");
-        pillBox.Valign = Align.Center;
-        pillBox.MarginEnd = 12;
-
-        var pillLabel = Label.New(typeLabel);
-        pillLabel.AddCssClass("caption-heading");
-        pillLabel.AddCssClass("dim-label");
-        pillLabel.MarginStart = 10;
-        pillLabel.MarginEnd = 10;
-        pillLabel.MarginTop = 4;
-        pillLabel.MarginBottom = 4;
-        pillBox.Append(pillLabel);
-
-        var downloadButton = Button.NewFromIconName("folder-download-symbolic");
-        downloadButton.Valign = Align.Center;
-        downloadButton.AddCssClass("flat");
-        downloadButton.AddCssClass("circular");
-
-        downloadButton.OnClicked += (_, _) =>
-        {
-            Console.Out.WriteLine($"[INFO] - Starting download for: {title}");
-        };
-
-        row.AddSuffix(pillBox);
-        row.AddSuffix(downloadButton);
-        return row;
-    }
-
-    private void SetupInstallButton(GameContentEntry content)
-    {
-        if (InstallerService.Instance.IsGameInstalled(_game.Slug))
-        {
-            _installButton.Sensitive = true;
-            _installButton.Label = "Play!";
-            _installButton.IconName = "media-playback-start-symbolic";
+        if (_gameContent is null)
             return;
-        }
-        
-        // Any downloads ongoing for this game?
-        if (DownloadQueueService.Instance.IsDownloadingGame(_game.Id))
-        {
-            _installButton.Sensitive = false;
-            _installButton.Label = "Downloading...";
-            _installButton.IconName = "object-select-symbolic";
+
+        // Updating the download button:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Available)) is not MenuButton downloadButton)
             return;
-        }
         
-        // IF there's no downloads, checking if the game is already installed:
-        
-        
-        // Finally, checking the available installation content for the game:
-        _installButton.Sensitive = true;
-        
-        var popover = Popover.New();
-        
-        var mainPopoverBox = Box.New(Orientation.Vertical, 4);
-        mainPopoverBox.AddCssClass("popover");
-        mainPopoverBox.SetSizeRequest(300, -1);
-        mainPopoverBox.MarginTop = 8;
-        mainPopoverBox.MarginBottom = 8;
-        mainPopoverBox.MarginStart = 8;
-        mainPopoverBox.MarginEnd = 8;
+        PopulateDownloadPopover(downloadButton, _gameContent);
+    }
+    
+    private void PopulateDownloadPopover(MenuButton downloadButton, GameContentEntry gameContent)
+    {
+        var downloadPopover = Popover.New();
+            
+        var downloadPopoverBox = Box.New(Orientation.Vertical, 4);
+        downloadPopoverBox.AddCssClass("popover");
+        downloadPopoverBox.SetSizeRequest(300, -1);
+        downloadPopoverBox.MarginTop = 8;
+        downloadPopoverBox.MarginBottom = 8;
+        downloadPopoverBox.MarginStart = 8;
+        downloadPopoverBox.MarginEnd = 8;
 
         var listBox = ListBox.New();
         listBox.SelectionMode = SelectionMode.None;
         listBox.AddCssClass("boxed-list");
 
-        foreach (var (languageString, availablePlatforms) in content.Downloads)
+        foreach (var (languageString, availablePlatforms) in gameContent.Downloads)
         {
             var expanderRow = ExpanderRow.New();
             expanderRow.Title = languageString;
@@ -383,7 +387,7 @@ public partial class GameDetailsView : IView
 
                 platformRow.OnActivated += (_, _) =>
                 {
-                    popover.Popdown();
+                    downloadPopover.Popdown();
                     HandleStartDownloads(languageString, platform);
                 };
                 
@@ -402,89 +406,67 @@ public partial class GameDetailsView : IView
             listBox.Append(expanderRow);
         }
 
-        mainPopoverBox.Append(listBox);
-        popover.Child = mainPopoverBox;
-        _installButton.Popover = popover;
+        downloadPopoverBox.Append(listBox);
+        downloadPopover.Child = downloadPopoverBox;
+        downloadButton.Popover = downloadPopover;
+        downloadButton.Sensitive = true;
     }
 
     private async void HandleStartDownloads(string language, PlatformContent platformContent)
     {
-        // Fetching the list of files:
-        if (platformContent.Items.Count == 0)
-            return;
-
-        var fileCountStr = $"{platformContent.Items.Count} file";
-
-        if (platformContent.Items.Count > 1)
+        try
         {
-            fileCountStr += "s";
-        }
-        
-        // Queueing the download of all files:
-        foreach (var downloadItem in platformContent.Items)
-        {
-            try
+            // Fetching the list of files:
+            if (platformContent.Items.Count == 0)
+                return;
+
+            var fileCountStr = $"{platformContent.Items.Count} file";
+
+            if (platformContent.Items.Count > 1)
             {
-                var finalUrl = await GogService.Instance.ResolveFinalDownloadUrlAsync(downloadItem.ManualUrl);
-                var uri = new Uri(finalUrl);
-                var fileName = Path.GetFileName(uri.AbsolutePath);
-                
-                if (string.IsNullOrWhiteSpace(fileName))
+                fileCountStr += "s";
+            }
+        
+            // Queueing the download of all files:
+            foreach (var downloadItem in platformContent.Items)
+            {
+                try
                 {
-                    fileName = $"{_game.Title.Replace(" ", "_")}_{platformContent.Platform.ToString()}.bin";
-                }
-            
-                await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {downloadItem.ManualUrl}");
-                await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
-
-                var downloadTask = await DownloadQueueService.Instance.EnqueueDownload(
-                    gameId: _game.Id,
-                    title: $"{downloadItem.Name} ({downloadItem.Size})",
-                    _game.Slug,
-                    url: finalUrl,
-                    targetFileName: fileName
-                );
+                    var finalUrl = await GogService.Instance.ResolveFinalDownloadUrlAsync(downloadItem.ManualUrl);
+                    var uri = new Uri(finalUrl);
+                    var fileName = Path.GetFileName(uri.AbsolutePath);
                 
-                _installButton.IconName = "object-select-symbolic";
-                _installButton.Sensitive = false;
+                    if (string.IsNullOrWhiteSpace(fileName))
+                    {
+                        fileName = $"{_game.Title.Replace(" ", "_")}_{platformContent.Platform.ToString()}.bin";
+                    }
+            
+                    await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {downloadItem.ManualUrl}");
+                    await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
+
+                    var downloadTask = await DownloadQueueService.Instance.EnqueueDownload(
+                        gameId: _game.Id,
+                        title: $"{downloadItem.Name} ({downloadItem.Size})",
+                        _game.Slug,
+                        url: finalUrl,
+                        targetFileName: fileName
+                    );
+                }
+                catch (Exception e)
+                {
+                    await Console.Out.WriteLineAsync($"[ERROR] - Failed to queue the requested download: {e.Message}");
+                }
             }
-            catch (Exception e)
-            {
-                await Console.Out.WriteLineAsync($"[ERROR] - Failed to queue the requested download: {e.Message}");
-                _installButton.Sensitive = true;
-                _installButton.Label = "Install";
-            }
-        }
         
-        _parentWindow.ShowToastNotification($"Queued '{_game.Title.EscapeMarkup()}', in {language}, for {platformContent.Platform.ToString()} [{fileCountStr}]");
-    }
-    
-    private static string CleanHtmlDescription(string html)
-    {
-        if (string.IsNullOrWhiteSpace(html)) 
-            return string.Empty;
-
-        var cleaned = html.Replace("&nbsp;", " ", StringComparison.OrdinalIgnoreCase);
-        cleaned = RegexHtmlBr().Replace(cleaned, Environment.NewLine);
-        cleaned = RegexHtmlLi().Replace(cleaned, $"{Environment.NewLine}• ");
-        cleaned = RegexHtmlHeadersParagraphs().Replace(cleaned, Environment.NewLine);
-        cleaned = RegexHtmlTags().Replace(cleaned, string.Empty);
-        cleaned = System.Net.WebUtility.HtmlDecode(cleaned);
-        cleaned = RegexTrimLines().Replace(cleaned, Environment.NewLine);
-        cleaned = RegexHtmlExcessiveWhiteSpace().Replace(cleaned, string.Empty);
-
-        return cleaned.Trim();
+            _parentWindow.ShowToastNotification($"Queued '{_game.Title.EscapeMarkup()}', in {language}, for {platformContent.Platform.ToString()} [{fileCountStr}]");
+        }
+        catch (Exception)
+        {
+            // ignored
+        }
     }
     
     // Properties:
     public string Identifier => "GameDetailsView";
     public Widget RootWidget => _rootOverlay;
-
-    // Some pre-compiled regexes, for performance:
-    [GeneratedRegex(@"<br\s*/?>", RegexOptions.IgnoreCase)] private static partial Regex RegexHtmlBr();
-    [GeneratedRegex("<li[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex RegexHtmlLi();
-    [GeneratedRegex("</p>|</h1>|</h2>|</h3>|</h4>|</ul>|</ol>|</div>", RegexOptions.IgnoreCase)] private static partial Regex RegexHtmlHeadersParagraphs();
-    [GeneratedRegex("<.*?>")] private static partial Regex RegexHtmlTags();
-    [GeneratedRegex(@"[ \t\u00A0]*\n[ \t\u00A0]*")] private static partial Regex RegexTrimLines();
-    [GeneratedRegex(@"\n{2,}")] private static partial Regex RegexHtmlExcessiveWhiteSpace();
 }

@@ -9,6 +9,7 @@ public enum EGameState
     Available,
     Downloading,
     Downloaded,
+    Installing,
     Installed
 }
 

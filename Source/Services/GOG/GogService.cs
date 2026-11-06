@@ -179,10 +179,10 @@ public class GogService
         return true;
     }
 
-    public async Task<object?> FetchGameContentDetails(GameEntry game)
+    public async Task<GogResponseGameContent?> FetchGameContentDetails(GameEntry game)
     {
         var urlToCall = $"{UrlGameDetails}{game.Id.ToString()}.json";
-        return await CallGetApi<GogResponseGameContent>(urlToCall);
+        return await CallGetApi<GogResponseGameContent>(urlToCall) as GogResponseGameContent;
     }
     
     public async Task<List<GogResponseGameDetails>?> FetchGameDlcContentDetails(GameEntry game)
