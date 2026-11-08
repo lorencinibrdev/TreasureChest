@@ -76,7 +76,6 @@ public class GridLibraryView : IView
         imageOverlay.AddOverlay(spinner);
         
         var label = Label.New(null);
-        label.Wrap = true;
         label.Justify = Justification.Center;
         label.Lines = 1;
         label.Ellipsize = Pango.EllipsizeMode.End;

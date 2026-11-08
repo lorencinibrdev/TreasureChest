@@ -10,7 +10,8 @@ public enum EGameState
     Downloading,
     Downloaded,
     Installing,
-    Installed
+    Installed,
+    Running
 }
 
 [Subclass<Object>]

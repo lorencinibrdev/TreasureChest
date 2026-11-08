@@ -129,6 +129,15 @@ public class LibraryService
         
         await Console.Out.WriteLineAsync("[INFO] - Game states initialized.");
     }
+    
+    public void SetGameState(long gameId, EGameState gameState)
+    {
+        if (!_gameStates.ContainsKey(gameId))
+            return;
+        
+        _gameStates[gameId] = gameState;
+        GameStateChanged?.Invoke(gameId, gameState);
+    }
 
     public EGameState GetGameState(long gameId)
     {
@@ -165,7 +174,7 @@ public class LibraryService
             return EGameState.Downloading;
         
         var sourceDir = Path.Join(SettingsService.Instance.DownloadsFolder, game.Slug);
-        var (type, _) = InstallerService.IdentifyGameInstallationType(sourceDir);
+        var (type, _) = InstallerService.IdentifyGameInstallationType(game, sourceDir);
     
         if (type != EGameInstallationType.Unknown)
             return EGameState.Downloaded;

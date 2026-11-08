@@ -1,8 +1,11 @@
 using Adw;
 using Gtk;
 using TreasureChest.Source.Helpers;
+using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.GOG;
+using TreasureChest.Source.Services.Install;
+using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views.Library;
 using HeaderBar = Adw.HeaderBar;
@@ -26,6 +29,8 @@ public class GameDetailsView : IView
     private readonly Spinner _loadingSpinner;
     private readonly Box _contentBox;
     private string _fullGameDescription = string.Empty;
+
+    private uint _installProgressPulseTimeoutId = 0;
 
     public GameDetailsView(MainWindow parentWindow, GameEntry game)
     {
@@ -184,6 +189,12 @@ public class GameDetailsView : IView
         {
             LibraryService.Instance.GameStateChanged -= HandleGameStateChanged;
             DownloadQueueService.Instance.TaskUpdated -= HandleDownloadProgressUpdate;
+
+            if (_installProgressPulseTimeoutId == 0) 
+                return;
+            
+            GLib.Functions.SourceRemove(_installProgressPulseTimeoutId);
+            _installProgressPulseTimeoutId = 0;
         };
     }
 
@@ -212,6 +223,25 @@ public class GameDetailsView : IView
         GLib.Functions.IdleAdd(0, () =>
         {
             _mainButtonStack.SetVisibleChildName(newState.ToString());
+
+            if (newState == EGameState.Installing && _installProgressPulseTimeoutId == 0)
+            {
+                _installProgressPulseTimeoutId = GLib.Functions.TimeoutAdd(0, 100, () => 
+                    {
+                        if (_mainButtonStack.GetChildByName(nameof(EGameState.Installing)) is not ProgressBar progressBar) 
+                            return false;
+                        
+                        progressBar.Pulse();
+                        return true;
+                    }
+                );
+            }
+            else if (newState != EGameState.Installing && _installProgressPulseTimeoutId != 0)
+            {
+                GLib.Functions.SourceRemove(_installProgressPulseTimeoutId);
+                _installProgressPulseTimeoutId = 0;
+            }
+            
             return false;
         });
     }
@@ -238,7 +268,10 @@ public class GameDetailsView : IView
             installedGameOptionsPopover.Child = installedGameOptionsBox;
             
             playSplitButton.Popover = installedGameOptionsPopover;
-            playSplitButton.OnClicked += (_, _) => Console.Out.WriteLine("[INFO] - Launching game...");
+            playSplitButton.OnClicked += (_, _) =>
+            {
+                _ = LauncherService.Instance.LaunchGameAsync(_game);
+            };
 
             _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
         }
@@ -256,14 +289,48 @@ public class GameDetailsView : IView
             _mainButtonStack.AddNamed(downloadMenuButton, nameof(EGameState.Available));
         }
         
+        // Now, checking for the running state:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Running)) is not MenuButton)
+        {
+            // The download options MenuButton, with it's popover:
+            var runningMenuButton = MenuButton.New();
+            runningMenuButton.Label = "Running...";
+            runningMenuButton.AddCssClass("suggested-action");
+            runningMenuButton.AddCssClass("pill");
+            runningMenuButton.Sensitive = false;
+            
+            _mainButtonStack.AddNamed(runningMenuButton, nameof(EGameState.Running));
+        }
+        
         // Checking for the downloaded state:
         if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloaded)) is not SplitButton)
         {
+            var setupFilesPath = Path.Join(SettingsService.Instance.DownloadsFolder, _game.Slug);
+            
             // The button:
             var installSplitButton = SplitButton.New();
-            installSplitButton.Label = "Install Game";
             installSplitButton.AddCssClass("suggested-action");
             installSplitButton.AddCssClass("pill");
+            
+            // Trying to quickly fetch the game install type for the downloaded files:
+            var (installationType, _) = InstallerService.IdentifyGameInstallationType(_game, setupFilesPath);
+
+            switch (installationType)
+            {
+                case EGameInstallationType.LinuxNative:
+                    installSplitButton.Label = "Install Game (Linux Native)";
+                    break;
+                case EGameInstallationType.WindowsInstaller:
+                    installSplitButton.Label = "Install Game (Windows)";
+                    break;
+                case EGameInstallationType.MacOsInstaller:
+                    installSplitButton.Label = "Install Game (MacOS Native)";
+                    break;
+                case EGameInstallationType.Unknown:
+                default:
+                    installSplitButton.Label = "Install Game (Unknown Installer Type)";
+                    break;
+            }
             
             // The menu button, with the popover options:
             var downloadedGameOptionsPopover = Popover.New();
@@ -272,7 +339,10 @@ public class GameDetailsView : IView
             downloadedGameOptionsPopover.Child = downloadedGameOptionsBox;
             
             installSplitButton.Popover = downloadedGameOptionsPopover;
-            installSplitButton.OnClicked += (_, _) => Console.Out.WriteLine("[INFO] - Installing game...");
+            installSplitButton.OnClicked += (_, _) =>
+            {
+                _ = InstallerService.Instance.InstallAsync(_game, setupFilesPath);
+            };
 
             _mainButtonStack.AddNamed(installSplitButton, nameof(EGameState.Downloaded));
         }
@@ -298,7 +368,6 @@ public class GameDetailsView : IView
             installProgressBar.MarginTop = 8;
             installProgressBar.MarginBottom = 8;
             installProgressBar.Vexpand = false;
-            installProgressBar.Pulse();
 
             _mainButtonStack.AddNamed(installProgressBar, nameof(EGameState.Installing));
         }
