@@ -96,3 +96,17 @@ To build and run TreasureChest from source, ensure your environment has the foll
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+## 📸 Screenshots (ALL of them are WIP)
+
+| Grid Library View (Regular) | Grid Library View (Compact) |
+| :---: | :---: |
+| <a href="https://github.com/user-attachments/assets/40142337-4f6d-422e-8c5e-869321596efd"><img src="https://github.com/user-attachments/assets/40142337-4f6d-422e-8c5e-869321596efd" width="100%" alt="Grid Library View (Regular)"></a> | <a href="https://github.com/user-attachments/assets/3ebcfe11-4daf-4efb-b4ee-665c003df96b"><img src="https://github.com/user-attachments/assets/3ebcfe11-4daf-4efb-b4ee-665c003df96b" width="100%" alt="Grid Library View (Compact)"></a> |
+
+| List View (Regular) | List View (Compact) |
+| :---: | :---: |
+| <a href="https://github.com/user-attachments/assets/520a0646-384b-47bb-96b7-47823a9a912f"><img src="https://github.com/user-attachments/assets/520a0646-384b-47bb-96b7-47823a9a912f" width="100%" alt="List Library View (Regular)"></a> | <a href="https://github.com/user-attachments/assets/c221552a-6e59-48d2-a24c-2bb498b326f0"><img src="https://github.com/user-attachments/assets/c221552a-6e59-48d2-a24c-2bb498b326f0" width="100%" alt="List Library View (Compact)"></a> |
+
+| Game Details (WIP) | Runner Management (WIP) |
+| :---: | :---: |
+| <a href="https://github.com/user-attachments/assets/520a0646-384b-47bb-96b7-47823a9a912f"><img width="2033" height="1604" alt="Game Details View" src="https://github.com/user-attachments/assets/b1e7e6d0-6483-4922-a400-eec38f3b9f35" /></a> | <a href="https://github.com/user-attachments/assets/c221552a-6e59-48d2-a24c-2bb498b326f0"><img width="850" height="650" alt="Runner Management" src="https://github.com/user-attachments/assets/39ee6e66-bb88-438e-b1b2-424808923b48" /></a> |
