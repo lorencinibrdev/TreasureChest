@@ -1,5 +1,6 @@
 using Adw;
 using Gtk;
+using TreasureChest.Source.Dialogs;
 using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.Downloads;
@@ -8,9 +9,10 @@ using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views.Library;
+using WebKit;
 using HeaderBar = Adw.HeaderBar;
 using MessageDialog = Adw.MessageDialog;
-using Spinner = Gtk.Spinner;
+using Spinner = Adw.Spinner;
 
 namespace TreasureChest.Source.Views;
 
@@ -21,17 +23,15 @@ public class GameDetailsView : IView
     private readonly Overlay _rootOverlay;
     private readonly PreferencesGroup _dlcGroup;
     private readonly PreferencesGroup _extrasGroup;
-    private readonly Label _descriptionLabel;
+    private readonly ScrolledWindow _scrolledWindowDescription;
     private readonly Stack _mainButtonStack;
     
     private readonly GameEntry _game;
-    private GameContentEntry? _gameContent;
 
     private readonly Spinner _loadingSpinner;
     private readonly Box _contentBox;
-    private string _fullGameDescription = string.Empty;
 
-    private uint _installProgressPulseTimeoutId = 0;
+    private uint _installProgressPulseTimeoutId;
 
     public GameDetailsView(MainWindow parentWindow, GameEntry game)
     {
@@ -80,7 +80,7 @@ public class GameDetailsView : IView
         
         // The content for downloads and such:
         var contentClamp = Clamp.New();
-        contentClamp.MaximumSize = 1000;
+        contentClamp.MaximumSize = 1920;
         contentClamp.MarginTop = 32;
         contentClamp.MarginBottom = 48;
         contentClamp.MarginStart = 24;
@@ -92,7 +92,6 @@ public class GameDetailsView : IView
         _loadingSpinner.Valign = Align.Center;
         _loadingSpinner.MarginTop = 64;
         _loadingSpinner.Visible = true;
-        _loadingSpinner.Spinning = true;
         
         // The game description section:
         var textCard = Box.New(Orientation.Vertical, 0);
@@ -106,33 +105,15 @@ public class GameDetailsView : IView
         aboutHeader.MarginStart = 16;
         aboutHeader.MarginEnd = 16;
         textCard.Append(aboutHeader);
-        
-        _descriptionLabel = Label.New(string.Empty);
-        _descriptionLabel.Wrap = true;
-        _descriptionLabel.Xalign = 0;
-        _descriptionLabel.Yalign = 0;
-        _descriptionLabel.MarginStart = 16;
-        _descriptionLabel.MarginEnd = 16;
 
-        textCard.Append(_descriptionLabel);
-
-        var readMoreButton = Button.New();
-        readMoreButton.AddCssClass("card");
-        readMoreButton.MarginBottom = 24;
-        readMoreButton.OnClicked += (_, _) => OpenFullDescriptionModal(_fullGameDescription);
-
-        var buttonContent = Box.New(Orientation.Horizontal, 8);
-        buttonContent.Halign = Align.Center;
-        buttonContent.MarginTop = 14;
-        buttonContent.MarginBottom = 14;
-
-        var btnLabel = Label.New("<b>Read Full Description</b>");
-        btnLabel.UseMarkup = true;
-        var btnIcon = Image.NewFromIconName("go-next-symbolic");
-        
-        buttonContent.Append(btnLabel);
-        buttonContent.Append(btnIcon);
-        readMoreButton.Child = buttonContent;
+        _scrolledWindowDescription = ScrolledWindow.New();
+        _scrolledWindowDescription.MarginStart = 12;
+        _scrolledWindowDescription.MarginEnd = 12;
+        _scrolledWindowDescription.MarginTop = 12;
+        _scrolledWindowDescription.MarginEnd = 12;
+        _scrolledWindowDescription.HasFrame = false;
+        _scrolledWindowDescription.MinContentHeight = 600;
+        textCard.Append(_scrolledWindowDescription);
         
         _contentBox = Box.New(Orientation.Vertical, 24);
         _contentBox.Visible = false;
@@ -146,12 +127,14 @@ public class GameDetailsView : IView
         _extrasGroup.Title = "Extras";
         _extrasGroup.Description = "Arts, Music and other extras.";
         _extrasGroup.Visible = false;
-
+        
+        var downloadableBox = Box.New(Orientation.Horizontal, 24);
+        downloadableBox.Append(_dlcGroup);
+        downloadableBox.Append(_extrasGroup);
+        
         _contentBox.Append(textCard);
-        _contentBox.Append(readMoreButton);
-        _contentBox.Append(_dlcGroup);
-        _contentBox.Append(_extrasGroup);
-
+        _contentBox.Append(downloadableBox);
+        
         var centralLayout = Box.New(Orientation.Vertical, 0);
         centralLayout.Append(_loadingSpinner);
         centralLayout.Append(_contentBox);
@@ -172,6 +155,7 @@ public class GameDetailsView : IView
         headerBar.PackStart(backButton);
         
         _rootOverlay.AddOverlay(headerBar);
+        _ = FetchGameDescriptionAsync();
         _ = FetchGameContentAsync();
         _ = LoadBackgroundImageAsync(pictureBg);
 
@@ -417,16 +401,33 @@ public class GameDetailsView : IView
     private async Task FetchGameContentAsync()
     {
         var responseGameContent = await GogService.Instance.FetchGameContentDetails(_game);
-        _gameContent = GameContentEntry.TryCreate(responseGameContent);
+        var gameContentEntry = GameContentEntry.TryCreate(responseGameContent);
 
-        if (_gameContent is null)
+        if (gameContentEntry is null)
             return;
 
         // Updating the download button:
         if (_mainButtonStack.GetChildByName(nameof(EGameState.Available)) is not MenuButton downloadButton)
             return;
         
-        PopulateDownloadPopover(downloadButton, _gameContent);
+        PopulateDownloadPopover(downloadButton, gameContentEntry);
+        PopulateContentGroups(gameContentEntry);
+    }
+
+    private async Task FetchGameDescriptionAsync()
+    {
+        var responseGameDescription =await GogService.Instance.FetchGameDescriptionAsync(_game.Id);
+
+        if (responseGameDescription?.Description is null ||
+            string.IsNullOrWhiteSpace(responseGameDescription.Description.Lead) ||
+            string.IsNullOrWhiteSpace(responseGameDescription.Description.Full))
+            return;
+        
+        // Showing the html description render:
+        CreateDescriptionHtmlWidget(responseGameDescription.Description.Lead);
+
+        _loadingSpinner.Visible = false;
+        _contentBox.Visible = true;
     }
     
     private void PopulateDownloadPopover(MenuButton downloadButton, GameContentEntry gameContent)
@@ -599,6 +600,141 @@ public class GameDetailsView : IView
         };
         
         dialog.Present();
+    }
+
+    private void CreateDescriptionHtmlWidget(string rawGogHtml)
+    {
+        var styledHtml = $$"""
+                           <!DOCTYPE html>
+                           <html>
+                           <head>
+                               <style>
+                                   :root {
+                                       color-scheme: dark light; /* Tells WebKit to respect system dark mode */
+                                   }
+                                   body {
+                                       font-family: system-ui, sans-serif;
+                                       background-color: transparent; /* Blends with GTK window background */
+                                       font-size: 14px;
+                                       line-height: 1.6;
+                                       padding: 0;
+                                       margin: 0;
+                                   }
+                                   img {
+                                       max-width: 100%;
+                                       height: auto;
+                                       border-radius: 8px; /* GNOME HIG style rounding for images */
+                                       margin-top: 12px;
+                                       margin-bottom: 12px;
+                                   }
+                                   a {
+                                       color: #3584e4; /* GNOME Accent Blue */
+                                       text-decoration: none;
+                                   }
+                               </style>
+                           </head>
+                           <body>
+                               {{rawGogHtml}}
+                           </body>
+                           </html>
+                           """;
+
+        var webView = WebView.New();
+        webView.SetBackgroundColor(new Gdk.RGBA { Red = 0, Green = 0, Blue = 0, Alpha = 0 });
+        webView.LoadHtml(styledHtml, null);
+
+        webView.OnDecidePolicy += (_, args) =>
+        {
+            var decision = args.Decision;
+
+            if (decision is NavigationPolicyDecision navigationDecision)
+            {
+                var type = navigationDecision.NavigationAction.GetNavigationType();
+                var uri = navigationDecision.NavigationAction.GetRequest().Uri;
+
+                if (type == NavigationType.LinkClicked)
+                {
+                    decision.Ignore();
+
+                    if (string.IsNullOrWhiteSpace(uri)) 
+                        return true;
+                    
+                    var confirmDialog = new ExternalLinkConfirmationDialog(_parentWindow, uri);
+                    confirmDialog.Present();
+
+                    return true;
+                }
+            }
+            
+            decision.Use();
+            return true;
+        };
+
+        _scrolledWindowDescription.SetChild(webView);
+        _scrolledWindowDescription.Vexpand = true;
+    }
+
+    private void PopulateContentGroups(GameContentEntry contentEntry)
+    {
+        // Handling the DLCs:
+        _dlcGroup.Visible = contentEntry.Dlcs.Count > 0;
+
+        foreach (var dlcContent in contentEntry.Dlcs)
+        {
+            var languagesAvailable = string.Join(", ", dlcContent.Downloads.Keys);
+                
+            var row = CreateDownloadRow(dlcContent.Title, "DLC Content", languagesAvailable);
+            _dlcGroup.Add(row);
+        }
+
+        // Handling the extras:
+        _extrasGroup.Visible = contentEntry.Extras.Count > 0;
+            
+        foreach (var extraContent in contentEntry.Extras)
+        {
+            var row = CreateDownloadRow(extraContent.Name, extraContent.Type, extraContent.Size);
+            _extrasGroup.Add(row);
+        }
+    }
+    
+    private static ActionRow CreateDownloadRow(string title, string typeLabel, string? size)
+    {
+        var row = ActionRow.New();
+
+        row.Title = System.Security.SecurityElement.Escape(title);
+        
+        if (!string.IsNullOrWhiteSpace(size))
+        {
+            row.Subtitle = System.Security.SecurityElement.Escape(size);
+        }
+
+        var pillBox = Box.New(Orientation.Horizontal, 0);
+        pillBox.AddCssClass("card");
+        pillBox.Valign = Align.Center;
+        pillBox.MarginEnd = 12;
+
+        var pillLabel = Label.New(typeLabel);
+        pillLabel.AddCssClass("caption-heading");
+        pillLabel.AddCssClass("dim-label");
+        pillLabel.MarginStart = 10;
+        pillLabel.MarginEnd = 10;
+        pillLabel.MarginTop = 4;
+        pillLabel.MarginBottom = 4;
+        pillBox.Append(pillLabel);
+
+        var downloadButton = Button.NewFromIconName("folder-download-symbolic");
+        downloadButton.Valign = Align.Center;
+        downloadButton.AddCssClass("flat");
+        downloadButton.AddCssClass("circular");
+
+        downloadButton.OnClicked += (_, _) =>
+        {
+            Console.Out.WriteLine($"[INFO] - Starting download for: {title}");
+        };
+
+        row.AddSuffix(pillBox);
+        row.AddSuffix(downloadButton);
+        return row;
     }
     
     // Properties:
