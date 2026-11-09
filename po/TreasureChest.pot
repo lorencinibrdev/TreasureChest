@@ -1,0 +1,39 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-09 15:54-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: Source/Views/GameDetailsView.cs:571
+msgid ""
+"This will delete all installed files, possibly including your save game data."
+msgstr ""
+
+#: Source/Views/GameDetailsView.cs:581
+msgid "Uninstall Game?"
+msgstr ""
+
+#: Source/Views/GameDetailsView.cs:582
+msgid "Are you sure you want to completely uninstall the game?"
+msgstr ""
+
+#: Source/Views/GameDetailsView.cs:586
+msgid "Cancel"
+msgstr ""
+
+#: Source/Views/GameDetailsView.cs:587
+msgid "Uninstall"
+msgstr ""

@@ -383,6 +383,19 @@ public class GameDetailsView : IView
             _mainButtonStack.AddNamed(installProgressBar, nameof(EGameState.Installing));
         }
         
+        // Checking for the uninstalling state:
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Uninstalling)) is not ProgressBar)
+        {
+            var uninstallProgressBar = ProgressBar.New();
+            uninstallProgressBar.Text = "Uninstalling...";
+            uninstallProgressBar.ShowText = true;
+            uninstallProgressBar.MarginTop = 8;
+            uninstallProgressBar.MarginBottom = 8;
+            uninstallProgressBar.Vexpand = false;
+
+            _mainButtonStack.AddNamed(uninstallProgressBar, nameof(EGameState.Uninstalling));
+        }
+        
         _mainButtonStack.SetVisibleChildName(currentGameState.ToString());
     }
     
@@ -548,24 +561,30 @@ public class GameDetailsView : IView
 
     private void ConfirmUninstall(GameEntry gameEntry)
     {
-        var escapedTitle = System.Security.SecurityElement.Escape(gameEntry.Title);
-        var textMessage = $"""
-                           Are you sure you want to completely remove
-                           {Environment.NewLine}
-                           <b>{escapedTitle}</b>
-                           {Environment.NewLine}
-                           This will delete all installed files, possibly including your save game data.
-                           """;
+        var extraBox = Box.New(Orientation.Vertical, 12);
+        extraBox.MarginTop = 12;
+        extraBox.MarginBottom = 12;
+        
+        var titleLabel = Label.New(gameEntry.Title);
+        titleLabel.AddCssClass("title-4");
+
+        var warningLabel = Label.New(I18n._("This will delete all installed files, possibly including your save game data."));
+        warningLabel.Wrap = true;
+        warningLabel.Justify = Justification.Center;
+        warningLabel.AddCssClass("warning");
+        
+        extraBox.Append(titleLabel);
+        extraBox.Append(warningLabel);
         
         var dialog = MessageDialog.New(
             parent: _parentWindow,
-            heading: "Uninstall Game?",
-            body: textMessage);
+            heading: I18n._("Uninstall Game?"),
+            body: I18n._("Are you sure you want to completely uninstall the game?"));
 
-        dialog.BodyUseMarkup = true;
+        dialog.ExtraChild = extraBox;
         
-        dialog.AddResponse("cancel", "Cancel");
-        dialog.AddResponse("uninstall", "Uninstall");
+        dialog.AddResponse("cancel", I18n._("Cancel"));
+        dialog.AddResponse("uninstall", I18n._("Uninstall"));
         
         dialog.SetResponseAppearance("uninstall", ResponseAppearance.Destructive);
         dialog.SetDefaultResponse("cancel");

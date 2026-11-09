@@ -39,14 +39,26 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PoFiles Include="po/*.po" />
+    </ItemGroup>
+
+    <Target Name="CompileTranslations" BeforeTargets="Build" Inputs="@(PoFiles)" Outputs="~/.local/share/io.github.lorencinibrdev.TreasureChest/locale/%(PoFiles.Filename)/LC_MESSAGES/TreasureChest.mo">
+        <Message Text="[MSBUILD] Compiling translations for %(PoFiles.Filename)..." />
+        <Exec Command="mkdir -p ~/.local/share/io.github.lorencinibrdev.TreasureChest/locale/%(PoFiles.Filename)/LC_MESSAGES" />
+        <Exec Command="msgfmt %(PoFiles.Identity) -o ~/.local/share/io.github.lorencinibrdev.TreasureChest/locale/%(PoFiles.Filename)/LC_MESSAGES/TreasureChest.mo" />
+    </Target>
+    
+    <ItemGroup>
       <PackageReference Include="GirCore.Adw-1" Version="0.8.1" />
       <PackageReference Include="GirCore.Gtk-4.0" Version="0.8.1" />
       <PackageReference Include="GirCore.Secret-1" Version="0.8.1" />
       <PackageReference Include="GirCore.WebKit-6.0" Version="0.8.1" />
+      <PackageReference Include="NGettext" Version="0.6.7" />
     </ItemGroup>
 
     <ItemGroup>
       <Folder Include="icons\" />
+      <Folder Include="po\" />
     </ItemGroup>
 
 </Project>
