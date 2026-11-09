@@ -109,4 +109,14 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 | Game Details (WIP) | Runner Management (WIP) |
 | :---: | :---: |
-| <a href="https://github.com/user-attachments/assets/520a0646-384b-47bb-96b7-47823a9a912f"><img width="2033" height="1604" alt="Game Details View" src="https://github.com/user-attachments/assets/b1e7e6d0-6483-4922-a400-eec38f3b9f35" /></a> | <a href="https://github.com/user-attachments/assets/c221552a-6e59-48d2-a24c-2bb498b326f0"><img width="850" height="650" alt="Runner Management" src="https://github.com/user-attachments/assets/39ee6e66-bb88-438e-b1b2-424808923b48" /></a> |
+| <a href="https://github.com/user-attachments/assets/eb32bc60-5351-4c3d-8634-4d34bbe74002"><img width="2033" height="1604" alt="Game Details View" src="https://github.com/user-attachments/assets/eb32bc60-5351-4c3d-8634-4d34bbe74002" /></a> | <a href="https://github.com/user-attachments/assets/39ee6e66-bb88-438e-b1b2-424808923b48"><img width="850" height="650" alt="Runner Management" src="https://github.com/user-attachments/assets/39ee6e66-bb88-438e-b1b2-424808923b48" /></a> |
+
+
+
+
+
+
+
+
+
+
