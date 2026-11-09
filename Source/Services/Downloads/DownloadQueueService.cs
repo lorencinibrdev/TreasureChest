@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Xml.Linq;
+using TreasureChest.Source.Helpers;
+using TreasureChest.Source.Services.Install;
 
 namespace TreasureChest.Source.Services.Downloads;
 
@@ -159,6 +161,13 @@ public class DownloadQueueService
         {
             task.Cts.Cancel();
         }
+    }
+
+    public bool IsGameDownloaded(string gameSlug)
+    {
+        var sourceDir = Path.Join(SettingsService.Instance.DownloadsFolder, gameSlug);
+        var (type, _) = InstallerService.IdentifyGameInstallationType(gameSlug, sourceDir);
+        return type != EGameInstallationType.Unknown;
     }
 
     private static void NotifyUi(Action action)

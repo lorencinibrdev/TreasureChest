@@ -16,10 +16,9 @@ public class LauncherService
     public async Task LaunchGameAsync(GameEntry game)
     {
         await Console.Out.WriteLineAsync($"[INFO] - Launching game '{game.Title}' (Native)");
-        
-        var manifest = InstallerService.Instance.GetGameManifest(game.Slug);
 
-        if (manifest is null || string.IsNullOrWhiteSpace(manifest.Value.ExecutablePath))
+        if (!InstallerService.Instance.TryGetInstallManifest(game.Slug, out var gameManifest) 
+            || string.IsNullOrWhiteSpace(gameManifest.Value.ExecutablePath))
         {
             Console.WriteLine($"[ERROR] - Cannot launch {game.Title}. Executable not found.");
             return;
@@ -27,13 +26,13 @@ public class LauncherService
 
         ProcessStartInfo? processStartInfo = null;
 
-        switch (manifest.Value.RunnerType)
+        switch (gameManifest.Value.RunnerType)
         {
             case ERunnerType.Native:
-                processStartInfo = CreateNativeProcessStartInfo(manifest.Value);
+                processStartInfo = CreateNativeProcessStartInfo(gameManifest.Value);
                 break;
             case ERunnerType.DosBox:
-                processStartInfo = await CreateDosboxProcessStartInfo(manifest.Value);
+                processStartInfo = await CreateDosboxProcessStartInfo(gameManifest.Value);
                 break;
             case ERunnerType.ScummVm:
                 // processStartInfo = CreateNativeProcessStartInfo(manifest.Value);

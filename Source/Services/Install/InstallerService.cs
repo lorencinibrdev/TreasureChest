@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Helpers.GOG.Responses;
+using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Services.Runners;
 
@@ -55,7 +57,7 @@ public class InstallerService
         if (string.IsNullOrWhiteSpace(gameEntry.Slug) || string.IsNullOrWhiteSpace(globalInstallDir))
             return false;
 
-        var (installationType, setupFilePath) = IdentifyGameInstallationType(gameEntry, sourceFolderPath);
+        var (installationType, setupFilePath) = IdentifyGameInstallationType(gameEntry.Slug, sourceFolderPath);
 
         if (installationType == EGameInstallationType.Unknown)
             return false;
@@ -63,7 +65,7 @@ public class InstallerService
         var targetFolderPath = Path.Combine(globalInstallDir, gameEntry.Slug);
         Directory.CreateDirectory(targetFolderPath);
         
-        // publishing the instalataion has started:
+        // publishing the installation has started:
         LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installing);
 
         await Console.Out.WriteLineAsync($"[INFO] - Requested installation of '{gameEntry.Title}'");
@@ -114,6 +116,47 @@ public class InstallerService
         }
 
         return installedSuccessfully;
+    }
+
+    public async Task<bool> UninstallAsync(GameEntry gameEntry)
+    {
+        if (!TryGetInstallManifest(gameEntry.Slug, out var gameManifest))
+        {
+            await Console.Out.WriteLineAsync($"[WARN] - Requested to uninstall {gameEntry.Slug}, but manifest is not present for it.");
+            LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Available);
+            return true;
+        }
+        
+        LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Uninstalling);
+        await Console.Out.WriteLineAsync($"[INFO] - Uninstalling {gameEntry.Slug}...");
+
+        try
+        {
+            // Deleting the game directory:
+            if (Directory.Exists(gameManifest.Value.InstallDirectoryPath))
+            {
+                await Task.Run(() => Directory.Delete(gameManifest.Value.InstallDirectoryPath, true));
+                await Console.Out.WriteLineAsync($"[INFO] - Removed game files at {gameManifest.Value.InstallDirectoryPath}...");
+            }
+            
+            // Deleting the JSON manifest from the disk and from the cache:
+            UnregisterInstallation(gameManifest.Value);
+
+            var newGameState = DownloadQueueService.Instance.IsGameDownloaded(gameEntry.Slug)
+                ? EGameState.Downloaded
+                : EGameState.Available;
+            
+            LibraryService.Instance.SetGameState(gameEntry.Id, newGameState);
+            
+            await Console.Out.WriteLineAsync($"[INFO] - Uninstallation completed. New game state: {newGameState}...");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[ERROR] - Failed to uninstall {gameEntry.Title}: {e.Message}");
+            LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installed);
+            return false;
+        }
     }
     
     private static ERunnerType IdentifyRunnerType(string installedFolderPath, string executablePath)
@@ -255,24 +298,22 @@ public class InstallerService
         }
     }
 
-    public bool IsGameInstalled(string gameSlug)
+    public bool TryGetInstallManifest(string gameSlug, [NotNullWhen(true)] out InstalledGameManifest? installManifest)
     {
         if (string.IsNullOrWhiteSpace(gameSlug))
+        {
+            installManifest = null;
             return false;
-
-        return _manifestCache.TryGetValue(gameSlug, out var manifestEntry) &&
-               Directory.Exists(manifestEntry.InstallDirectoryPath);
-    }
-    
-    public InstalledGameManifest? GetGameManifest(string gameSlug)
-    {
-        if (!IsGameInstalled(gameSlug))
-            return null;
-
-        if (!_manifestCache.TryGetValue(gameSlug, out var manifestEntry))
-            return null;
+        }
         
-        return manifestEntry;
+        if (_manifestCache.TryGetValue(gameSlug, out var foundManifest))
+        {
+            installManifest = foundManifest;
+            return true;
+        }
+
+        installManifest = null;
+        return false;
     }
 
     private void RegisterInstallation(InstalledGameManifest manifest)
@@ -283,8 +324,21 @@ public class InstallerService
         
         _manifestCache[manifest.Slug] = manifest;
     }
+    
+    private void UnregisterInstallation(InstalledGameManifest manifest)
+    {
+        var manifestPath = Path.Combine(ManifestsDirectory, $"{manifest.Slug}.json");
 
-    public static (EGameInstallationType installationType, string setupFilePath) IdentifyGameInstallationType(GameEntry gameEntry, string sourceFolderPath)
+        if (File.Exists(manifestPath))
+        {
+            File.Delete(manifestPath);
+            Console.Out.WriteLine($"[INFO] - Removed manifest file at {manifestPath}...");
+        }
+        
+        _manifestCache.Remove(manifest.Slug);
+    }
+
+    public static (EGameInstallationType installationType, string setupFilePath) IdentifyGameInstallationType(string gameSlug, string sourceFolderPath)
     {
         if (!Directory.Exists(sourceFolderPath))
             return (EGameInstallationType.Unknown, string.Empty);
@@ -292,7 +346,7 @@ public class InstallerService
         // Checking for linux first:
         var linuxInstaller = Directory
             .EnumerateFiles(sourceFolderPath, "*.sh")
-            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith("gog_") || Path.GetFileName(f).StartsWith(gameEntry.Slug));
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith("gog_") || Path.GetFileName(f).StartsWith(gameSlug));
 
         if (!string.IsNullOrWhiteSpace(linuxInstaller))
             return (EGameInstallationType.LinuxNative, linuxInstaller);
@@ -300,7 +354,7 @@ public class InstallerService
         // If not found, falling back to windows installs:
         var windowsInstaller = Directory
             .EnumerateFiles(sourceFolderPath, "*.exe")
-            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith(gameEntry.Slug));
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith(gameSlug));
 
         if (!string.IsNullOrWhiteSpace(windowsInstaller))
             return (EGameInstallationType.WindowsInstaller, windowsInstaller);

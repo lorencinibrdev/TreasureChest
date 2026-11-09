@@ -166,21 +166,16 @@ public class LibraryService
     private static EGameState EvaluateGameStateFromDisk(GameEntry game)
     {
         // Installed?
-        if (InstallerService.Instance.IsGameInstalled(game.Slug))
+        if (InstallerService.Instance.TryGetInstallManifest(game.Slug, out _))
             return EGameState.Installed;
         
         // Downloading?
         if (DownloadQueueService.Instance.IsDownloadingGame(game.Id))
             return EGameState.Downloading;
-        
-        var sourceDir = Path.Join(SettingsService.Instance.DownloadsFolder, game.Slug);
-        var (type, _) = InstallerService.IdentifyGameInstallationType(game, sourceDir);
-    
-        if (type != EGameInstallationType.Unknown)
-            return EGameState.Downloaded;
 
-        // 4. Fallback: Just sitting in the GOG library
-        return EGameState.Available;
+        return DownloadQueueService.Instance.IsGameDownloaded(game.Slug) 
+            ? EGameState.Downloaded 
+            : EGameState.Available;
     }
     
     // Properties:

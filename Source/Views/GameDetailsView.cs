@@ -9,6 +9,7 @@ using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views.Library;
 using HeaderBar = Adw.HeaderBar;
+using MessageDialog = Adw.MessageDialog;
 using Spinner = Gtk.Spinner;
 
 namespace TreasureChest.Source.Views;
@@ -254,19 +255,29 @@ public class GameDetailsView : IView
         // Do we have the play button already?
         if (_mainButtonStack.GetChildByName(nameof(EGameState.Installed)) is not SplitButton)
         {
+            // The popover data:
+            var installedGameOptionsPopover = Popover.New();
+            var installedGameOptionsBox = Box.New(Orientation.Vertical, 12);
+            installedGameOptionsPopover.Child = installedGameOptionsBox;
+         
+            var uninstallButton = Button.NewWithLabel("Uninstall");
+
+            uninstallButton.OnClicked += (_, _) =>
+            {
+                installedGameOptionsPopover.Popdown();
+                ConfirmUninstall(_game);
+            };
+            
+            var configureLaunchParametersButton = Button.NewWithLabel("Change Launch Parameters");
+            
+            installedGameOptionsBox.Append(uninstallButton);
+            installedGameOptionsBox.Append(configureLaunchParametersButton);
+            
             // The button:
             var playSplitButton = SplitButton.New();
             playSplitButton.Label = "Play!";
             playSplitButton.AddCssClass("suggested-action");
             playSplitButton.AddCssClass("pill");
-            
-            // The menu button, with the popover options:
-            var installedGameOptionsPopover = Popover.New();
-            var installedGameOptionsBox = Box.New(Orientation.Vertical, 0);
-            installedGameOptionsBox.Append(Button.NewWithLabel("Uninstall"));
-            installedGameOptionsBox.Append(Button.NewWithLabel("Change Launch Parameters"));
-            installedGameOptionsPopover.Child = installedGameOptionsBox;
-            
             playSplitButton.Popover = installedGameOptionsPopover;
             playSplitButton.OnClicked += (_, _) =>
             {
@@ -313,7 +324,7 @@ public class GameDetailsView : IView
             installSplitButton.AddCssClass("pill");
             
             // Trying to quickly fetch the game install type for the downloaded files:
-            var (installationType, _) = InstallerService.IdentifyGameInstallationType(_game, setupFilesPath);
+            var (installationType, _) = InstallerService.IdentifyGameInstallationType(_game.Slug, setupFilesPath);
 
             switch (installationType)
             {
@@ -513,7 +524,7 @@ public class GameDetailsView : IView
                     await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {downloadItem.ManualUrl}");
                     await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
 
-                    var downloadTask = await DownloadQueueService.Instance.EnqueueDownload(
+                    _ = await DownloadQueueService.Instance.EnqueueDownload(
                         gameId: _game.Id,
                         title: $"{downloadItem.Name} ({downloadItem.Size})",
                         _game.Slug,
@@ -533,6 +544,42 @@ public class GameDetailsView : IView
         {
             // ignored
         }
+    }
+
+    private void ConfirmUninstall(GameEntry gameEntry)
+    {
+        var escapedTitle = System.Security.SecurityElement.Escape(gameEntry.Title);
+        var textMessage = $"""
+                           Are you sure you want to completely remove
+                           {Environment.NewLine}
+                           <b>{escapedTitle}</b>
+                           {Environment.NewLine}
+                           This will delete all installed files, possibly including your save game data.
+                           """;
+        
+        var dialog = MessageDialog.New(
+            parent: _parentWindow,
+            heading: "Uninstall Game?",
+            body: textMessage);
+
+        dialog.BodyUseMarkup = true;
+        
+        dialog.AddResponse("cancel", "Cancel");
+        dialog.AddResponse("uninstall", "Uninstall");
+        
+        dialog.SetResponseAppearance("uninstall", ResponseAppearance.Destructive);
+        dialog.SetDefaultResponse("cancel");
+        dialog.SetCloseResponse("cancel");
+
+        dialog.OnResponse +=  async(_, args) =>
+        {
+            if (args.Response == "uninstall")
+            {
+                await InstallerService.Instance.UninstallAsync(gameEntry);
+            }
+        };
+        
+        dialog.Present();
     }
     
     // Properties:
