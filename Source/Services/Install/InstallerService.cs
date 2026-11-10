@@ -452,7 +452,7 @@ public class InstallerService
 
                 if (primaryTask is not null && !string.IsNullOrWhiteSpace(primaryTask.Path))
                 {
-                    var executablePath = Path.Combine(targetFolderPath, primaryTask.Path); 
+                    var executablePath = Path.Combine(targetFolderPath, primaryTask.Path.Replace(".EXE", ".exe"));  // Jesus GOG... 
                     var arguments = primaryTask.Arguments;
                     var workingDir = Path.Join(targetFolderPath, primaryTask.WorkingDir);
                     return (executablePath, arguments, workingDir);
