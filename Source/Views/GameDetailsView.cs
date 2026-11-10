@@ -194,7 +194,7 @@ public class GameDetailsView : IView
                 return false;
             
             progressBar.Fraction = downloadTask.Progress;
-            progressBar.Text = $"{downloadTask.Progress:0.1}%";
+            progressBar.Text = $"{downloadTask.Progress * 10:0.1}%";
 
             return false;
         });
@@ -225,6 +225,31 @@ public class GameDetailsView : IView
             {
                 GLib.Functions.SourceRemove(_installProgressPulseTimeoutId);
                 _installProgressPulseTimeoutId = 0;
+            }
+            else if (newState == EGameState.Downloaded)
+            {
+                if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloaded)) is not SplitButton splitButton)
+                    return false;
+                
+                var setupFilesPath = Path.Join(SettingsService.Instance.DownloadsFolder, _game.Slug);
+                var (installationType, _) = InstallerService.IdentifyGameInstallationType(_game.Slug, setupFilesPath);
+
+                switch (installationType)
+                {
+                    case EGameInstallationType.LinuxNative:
+                        splitButton.Label = "Install Game (Linux Native)";
+                        break;
+                    case EGameInstallationType.WindowsInstaller:
+                        splitButton.Label = "Install Game (Windows)";
+                        break;
+                    case EGameInstallationType.MacOsInstaller:
+                        splitButton.Label = "Install Game (MacOS Native)";
+                        break;
+                    case EGameInstallationType.Unknown:
+                    default:
+                        splitButton.Label = "Install Game (Unknown Installer Type)";
+                        break;
+                }
             }
             
             return false;
