@@ -13,4 +13,6 @@ public class GogPlayTask
     [JsonPropertyName("isPrimary")] public bool IsPrimary { get; set; }
     [JsonPropertyName("path")] public string Path { get; set; } = string.Empty;
     [JsonPropertyName("type")] public string Type { get; set; } = string.Empty;
+    [JsonPropertyName("arguments")] public string Arguments { get; set; } = string.Empty;
+    [JsonPropertyName("workingDir")] public string WorkingDir { get; set; } = string.Empty;
 }

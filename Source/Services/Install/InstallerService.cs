@@ -90,17 +90,19 @@ public class InstallerService
 
         if (installedSuccessfully)
         {
-            var executablePath = FindExecutablePath(targetFolderPath);
+            var (executablePath, arguments, workingDir) = FindExecutablePath(targetFolderPath);
 
             await Console.Out.WriteLineAsync($"[INFO] - Resolved game executable: {executablePath}");
 
             var runner = IdentifyRunnerType(targetFolderPath, executablePath);
-            
+
             var manifest = new InstalledGameManifest(
                 GameId: gameEntry.Id,
                 Slug: gameEntry.Slug,
                 InstallDirectoryPath: targetFolderPath,
                 ExecutablePath: executablePath,
+                Arguments: arguments,
+                WorkingDirectory: workingDir,
                 InstallDate: DateTime.UtcNow,
                 RunnerType: runner
             );
@@ -161,21 +163,21 @@ public class InstallerService
     
     private static ERunnerType IdentifyRunnerType(string installedFolderPath, string executablePath)
     {
+        // Searching for a DOSBOX folder in the installation directory:
+        if (Directory.Exists(Path.Combine(installedFolderPath, "dosbox")) 
+            || Directory.Exists(Path.Combine(installedFolderPath, "DOSBOX"))
+            || executablePath.Contains("dosbox.exe", StringComparison.OrdinalIgnoreCase))
+            return ERunnerType.DosBox;
+        
+        var scummvmFolderPath = Path.Combine(installedFolderPath, "scummvm");
+        if (Directory.Exists(scummvmFolderPath))
+            return ERunnerType.ScummVm;
+
         // If the executable is a .exe file, then we go with Wine:
         if (executablePath.EndsWith(".exe") || executablePath.EndsWith(".msi"))
             return ERunnerType.Wine;
         
-        // Searching for a DOSBOX folder in the installation directory:
-        var dosboxFolderPath = Path.Combine(installedFolderPath, "dosbox");
-
-        if (Directory.Exists(dosboxFolderPath))
-            return ERunnerType.DosBox;
-
-        var scummvmFolderPath = Path.Combine(installedFolderPath, "scummvm");
-        
-        return Directory.Exists(scummvmFolderPath) 
-            ? ERunnerType.ScummVm 
-            : ERunnerType.Native;
+        return ERunnerType.Native;
     }
 
     private static async Task<bool> RunLinuxNativeInstallAsync(string setupFilePath, string targetFolderPath)
@@ -253,7 +255,79 @@ public class InstallerService
     
     private static async Task<bool> RunWindowsInstallAsync(string setupFilePath, string targetFolderPath)
     {
-        return false;
+        // Using innoextract to extract the game data:
+        var innoRunner = RunnerManagerService.GetRunnerInformation(ERunnerType.InnoExtract);
+
+        if (string.IsNullOrWhiteSpace(innoRunner.ExecutablePath) || !File.Exists(innoRunner.ExecutablePath))
+        {
+            Console.WriteLine("[INFO] - InnoExtract runner not found. Attempting to download...");
+
+            var downloadUrl = RunnerManagerService.GetDownloadUrlForRunner(ERunnerType.InnoExtract);
+            var installed = await RunnerManagerService.Instance.InstallRunnerAsync(ERunnerType.InnoExtract, downloadUrl);
+
+            if (!installed)
+            {
+                Console.WriteLine("[ERROR] - InnoExtract installation failed.");
+                return false;
+            }
+
+            innoRunner = RunnerManagerService.GetRunnerInformation(ERunnerType.InnoExtract);
+        }
+        
+        Directory.CreateDirectory(targetFolderPath);
+
+        var processStartInfo = new ProcessStartInfo
+        {
+            FileName = innoRunner.ExecutablePath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        
+        processStartInfo.ArgumentList.Add("-s");
+        processStartInfo.ArgumentList.Add("-d");
+        processStartInfo.ArgumentList.Add(targetFolderPath);
+        processStartInfo.ArgumentList.Add(setupFilePath);
+        
+        await Console.Out.WriteLineAsync("[INFO] - Extracting Windows game files using InnoExtract...");
+
+        try
+        {
+            using var process = Process.Start(processStartInfo);
+
+            if (process is null)
+            {
+                await Console.Out.WriteLineAsync("[ERROR] - Failed to run InnoExtract...");
+                return false;
+            }
+
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var stderr = await process.StandardError.ReadToEndAsync();
+                Console.WriteLine($"[ERROR] - Windows installer extraction exited with code {process.ExitCode}");
+                
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    Console.WriteLine($"[ERROR] - StdErr: {stderr}");
+                }
+                
+                return false;
+            }
+            
+            await Console.Out.WriteLineAsync("[INFO] - Successfully extracted Windows game files.");
+            
+            MoveSupportFiles(targetFolderPath);
+            
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[ERROR] - Windows InnoExtract install failed: {e.Message}");
+            return false;
+        }
     }
     
     private static async Task<bool> RunMacOsInstallAsync(string setupFilePath, string targetFolderPath)
@@ -363,7 +437,7 @@ public class InstallerService
         return (EGameInstallationType.Unknown, string.Empty);
     }
 
-    private string FindExecutablePath(string targetFolderPath)
+    private (string ExecutablePath, string? Arguments, string? WorkingDir) FindExecutablePath(string targetFolderPath)
     {
         var infoFiles = Directory.GetFiles(targetFolderPath, "goggame-*.info");
 
@@ -378,7 +452,10 @@ public class InstallerService
 
                 if (primaryTask is not null && !string.IsNullOrWhiteSpace(primaryTask.Path))
                 {
-                    return Path.Combine(targetFolderPath, primaryTask.Path);
+                    var executablePath = Path.Combine(targetFolderPath, primaryTask.Path); 
+                    var arguments = primaryTask.Arguments;
+                    var workingDir = Path.Join(targetFolderPath, primaryTask.WorkingDir);
+                    return (executablePath, arguments, workingDir);
                 }
             }
             catch (Exception e)
@@ -391,13 +468,76 @@ public class InstallerService
             .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
 
         if (fallbackScript is not null)
-            return fallbackScript;
+            return (fallbackScript, null, null);
         
         // Fallback to windows executable:
         var fallbackExe = Directory.GetFiles(targetFolderPath, "*.exe")
             .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
 
-        return fallbackExe ?? string.Empty;
+        if (fallbackExe is not null)
+            return (fallbackExe, null, null);
+        
+        return (string.Empty, null, null);
+    }
+
+    private static void MoveSupportFiles(string installFolder)
+    {
+        var supportFolderPath = Path.Combine(installFolder, "__support", "app");
+        
+        if (!Directory.Exists(supportFolderPath))
+            return;
+        
+        // // First, moving subdirectories:
+        var subdirs = Directory.GetDirectories(supportFolderPath);
+        
+        foreach (var subdir in subdirs)
+        {
+            var dirName = Path.GetFileName(subdir);
+            var targetDir = !string.IsNullOrWhiteSpace(dirName) ? Path.Combine(installFolder, dirName) : installFolder;
+            MoveDirectoryContents(subdir, targetDir);    
+        }
+        
+        // Now, moving special GOG Files (If Any):
+        var dosBoxFolder = string.Empty;
+
+        if (Directory.Exists(Path.Combine(installFolder, "DOSBOX")))
+        {
+            dosBoxFolder = Path.Combine(installFolder, "DOSBOX");
+        }
+        else if (Directory.Exists(Path.Combine(installFolder, "dosbox")))
+        {
+            dosBoxFolder = Path.Combine(installFolder, "dosbox");
+        }
+
+        if (string.IsNullOrWhiteSpace(dosBoxFolder))
+            return;
+        
+        var dosboxConfigs = Directory.GetFiles(supportFolderPath, "*.conf")
+            .Where(f => Path.GetFileName(f).StartsWith("dosbox", StringComparison.InvariantCultureIgnoreCase))
+            .ToList();
+
+        foreach (var dosboxConfigFile in dosboxConfigs)
+        {
+            var targetPath = Path.Combine(dosBoxFolder, Path.GetFileName(dosboxConfigFile));
+            
+            if (File.Exists(targetPath))
+                continue;
+            
+            File.Move(dosboxConfigFile, targetPath);
+        }
+        
+        // Finally, moving any remaining file to the root folder:
+        var remainingFiles = Directory.GetFiles(supportFolderPath);
+
+        foreach (var remainingFile in remainingFiles)
+        {
+            var targetPath = Path.Combine(installFolder, Path.GetFileName(remainingFile));
+            
+            if (File.Exists(targetPath))
+                continue;
+            
+            File.Move(remainingFile, targetPath);
+        }
     }
     
     // Properties:

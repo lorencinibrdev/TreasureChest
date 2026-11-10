@@ -7,6 +7,8 @@ public readonly record struct InstalledGameManifest(
     string Slug,
     string InstallDirectoryPath,
     string ExecutablePath,
+    string? Arguments,
+    string? WorkingDirectory,
     DateTime InstallDate,
     ERunnerType? RunnerType
 );

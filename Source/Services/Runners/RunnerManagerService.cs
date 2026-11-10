@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using File = System.IO.File;
 
 namespace TreasureChest.Source.Services.Runners;
 
@@ -21,42 +22,43 @@ public class RunnerManagerService
     public static RunnerInfo GetRunnerInformation(ERunnerType runnerType)
     {
         Console.Out.WriteLine($"[INFO] - Checking runner {runnerType.ToString()}...");
-        
+
         var binaryName = GetBinaryName(runnerType);
-        var systemPath = FindBinaryInPath(binaryName);
         
-        if (!string.IsNullOrWhiteSpace(systemPath))
+        if (SettingsService.Instance.PreferSystemRunners)
         {
-            Console.Out.WriteLine($"[INFO] - Runner {runnerType.ToString()} found in system path (native): {systemPath}");
+            Console.Out.WriteLine($"[INFO] - Trying to find system-installed '{binaryName}' first...");
             
-            return new RunnerInfo
+            var systemPath = FindBinaryInSystemPath(binaryName);
+        
+            if (!string.IsNullOrWhiteSpace(systemPath))
             {
-                Type = runnerType,
-                Name = runnerType.ToString(),
-                ExecutablePath = systemPath,
-                IsSystemInstalled = true
-            };
+                Console.Out.WriteLine($"[INFO] - Runner {runnerType.ToString()} found in system path (native): {systemPath}");
+            
+                return new RunnerInfo
+                {
+                    Type = runnerType,
+                    Name = runnerType.ToString(),
+                    ExecutablePath = systemPath,
+                    IsSystemInstalled = true
+                };
+            }
+
+            Console.Out.WriteLine("[WARN] - Could not find the requested runner in system PATH. Falling back to downloaded version...");
         }
 
         var baseRuntimeDir = Path.Combine(SettingsService.Instance.RuntimesFolder, runnerType.ToString().ToLower());
-        var localPath = Path.Combine(baseRuntimeDir, binaryName);
-        var localBinPath = Path.Combine(baseRuntimeDir, binaryName);
-        var localGamesPath = Path.Combine(baseRuntimeDir, "games", binaryName);
-        
-        var resolvedPath = File.Exists(localBinPath) ? localBinPath : 
-            File.Exists(localPath) ? localPath : 
-            File.Exists(localGamesPath) ? localGamesPath :
-            string.Empty;
+        var binaryPath = FindBinaryInDownloadedPath(binaryName, baseRuntimeDir) ?? string.Empty;
 
-        Console.Out.WriteLine(!string.IsNullOrWhiteSpace(resolvedPath)
-            ? $"[INFO] - Runner {runnerType.ToString()} found in local path (local): {resolvedPath}"
+        Console.Out.WriteLine(!string.IsNullOrWhiteSpace(binaryPath)
+            ? $"[INFO] - Runner {runnerType.ToString()} found in local path (local): {binaryPath}"
             : $"[INFO] - Runner {runnerType.ToString()} not present in system or local paths. Download may be necessary.");
 
         return new RunnerInfo
         {
             Type = runnerType,
             Name = runnerType.ToString(),
-            ExecutablePath = resolvedPath,
+            ExecutablePath = binaryPath,
             IsSystemInstalled = false
         };
     }
@@ -195,11 +197,11 @@ public class RunnerManagerService
             ERunnerType.Wine => "wine",
             ERunnerType.Proton => "proton",
             ERunnerType.InnoExtract => "innoextract",
-            _ => throw new ArgumentOutOfRangeException(nameof(runnerType), runnerType, null)
+            _ => string.Empty
         };
     }
 
-    private static string? FindBinaryInPath(string binaryName)
+    private static string? FindBinaryInSystemPath(string binaryName)
     {
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
 
@@ -207,16 +209,17 @@ public class RunnerManagerService
             return null;
 
         var searchDirectories = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        
+        return searchDirectories.Select(directory => Path.Combine(directory, binaryName)).FirstOrDefault(File.Exists);
+    }
 
-        foreach (var directory in searchDirectories)
-        {
-            var fullPath = Path.Combine(directory, binaryName);
-
-            if (File.Exists(fullPath))
-                return fullPath;
-        }
-
-        return null;
+    private static string? FindBinaryInDownloadedPath(string binaryName, string targetDir)
+    {
+        if (!Directory.Exists(targetDir) || string.IsNullOrWhiteSpace(binaryName))
+            return null;
+        
+        var files = Directory.GetFiles(targetDir, $"{binaryName}", SearchOption.AllDirectories);
+        return files.FirstOrDefault(File.Exists);
     }
 
     private static string ExtractExtensionFromDownloadUrl(string downloadUrl)
@@ -244,6 +247,7 @@ public class RunnerManagerService
             ERunnerType.DosBox => $"{baseUrl}/dosbox-staging-linux-x86_64-v0.83.0.tar.xz",
             ERunnerType.ScummVm => $"{baseUrl}/scummvm-2026.4.0-x86_64-linux.tar.xz",
             ERunnerType.InnoExtract => "https://github.com/dscharrer/innoextract/releases/download/1.9/innoextract-1.9-linux.tar.xz",
+            ERunnerType.Wine => "https://github.com/Kron4ek/Wine-Builds/releases/download/11.21/wine-11.21-staging-amd64-wow64.tar.xz",
             _ => throw new NotImplementedException($"No direct download URL configured for {runnerType}")
         };
     }
