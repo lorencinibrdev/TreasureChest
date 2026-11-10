@@ -88,6 +88,11 @@ public class SettingsService
         set => _settings.SetBoolean("auto-clean-downloads", value);
     }
     
+    public bool PreferSystemRunners {
+        get => _settings.GetBoolean("prefer-system-runners");
+        set => _settings.SetBoolean("prefer-system-runners", value);
+    }
+    
     public int LastWindowWidth {
         get => _settings.GetInt("last-window-width");
         set => _settings.SetInt("last-window-width", value);

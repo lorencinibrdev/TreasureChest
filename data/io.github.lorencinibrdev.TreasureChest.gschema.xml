@@ -47,6 +47,10 @@
             <default>true</default>
             <summary>Automatically delete installers after installation</summary>
         </key>
+        <key name="prefer-system-runners" type="b">
+            <default>false</default>
+            <summary>When launching a game, prefer to use system installed runners, and fallback to runtimes when not available</summary>
+        </key>
         <key name="last-window-width" type="i">
             <default>1000</default>
             <summary>The last saved window width</summary>

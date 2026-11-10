@@ -152,6 +152,18 @@ public class PreferencesDialog
         downloadsGroup.Title = "Installed Runtimes";
         downloadsGroup.Description = "The engines used to run Windows, DOS and Arcade games in Linux";
         
+        var preferSystemRuntimes = SwitchRow.New();
+        preferSystemRuntimes.Title = "Prefer System Runtimes";
+        preferSystemRuntimes.Subtitle = "Use the system-installed runtimes when launching a game. If not available, fallback to downloaded runtimes.";
+        preferSystemRuntimes.Active = SettingsService.Instance.PreferSystemRunners;
+
+        preferSystemRuntimes.OnNotify += (_, _) =>
+        {
+            SettingsService.Instance.PreferSystemRunners = preferSystemRuntimes.Active;
+        };
+        
+        downloadsGroup.Add(preferSystemRuntimes);
+        
         // Add runner rows dynamically
         downloadsGroup.Add(CreateRuntimeRow(
             runnerType: ERunnerType.InnoExtract, 
