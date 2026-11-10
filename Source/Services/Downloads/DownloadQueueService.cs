@@ -57,9 +57,9 @@ public class DownloadQueueService
                 or EDownloadStatus.Validating);
     }
 
-    public IEnumerable<DownloadTask> GetTasksForGame(long gameId)
+    public List<DownloadTask> GetTasksForGame(long gameId)
     {
-        return _allTasks.Where(t => t.GameId == gameId);
+        return [.. _allTasks.Where(t => t.GameId == gameId)];
     }
 
     private async Task ProcessTaskAsync(DownloadTask task)

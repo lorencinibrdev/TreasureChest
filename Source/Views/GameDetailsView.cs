@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Adw;
 using Gtk;
 using TreasureChest.Source.Dialogs;
@@ -16,7 +17,7 @@ using Spinner = Adw.Spinner;
 
 namespace TreasureChest.Source.Views;
 
-public class GameDetailsView : IView
+public partial class GameDetailsView : IView
 {
     // Private Members:
     private readonly MainWindow _parentWindow;
@@ -112,7 +113,9 @@ public class GameDetailsView : IView
         _scrolledWindowDescription.MarginTop = 12;
         _scrolledWindowDescription.MarginEnd = 12;
         _scrolledWindowDescription.HasFrame = false;
-        _scrolledWindowDescription.MinContentHeight = 600;
+        _scrolledWindowDescription.HscrollbarPolicy = PolicyType.Never;
+        // _scrolledWindowDescription.VscrollbarPolicy = PolicyType.Never;
+        _scrolledWindowDescription.PropagateNaturalHeight = true;
         textCard.Append(_scrolledWindowDescription);
         
         _contentBox = Box.New(Orientation.Vertical, 24);
@@ -193,8 +196,17 @@ public class GameDetailsView : IView
             if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloading)) is not ProgressBar progressBar)
                 return false;
             
-            progressBar.Fraction = downloadTask.Progress;
-            progressBar.Text = $"{downloadTask.Progress * 10:0.1}%";
+            var gameTasks = DownloadQueueService.Instance.GetTasksForGame(_game.Id);
+
+            if (gameTasks.Count == 0)
+                return false;
+
+            var totalBytesSum = gameTasks.Sum(t => t.TotalBytes);
+            var totalDownloadedBytesSum = gameTasks.Sum(t => t.TotalBytesDownloaded);
+            var progress = totalBytesSum > 0 ? (double)totalDownloadedBytesSum / totalBytesSum : 0;
+
+            progressBar.Fraction = progress;
+            progressBar.Text = $"{progress:P1}";
 
             return false;
         });
@@ -627,78 +639,6 @@ public class GameDetailsView : IView
         dialog.Present();
     }
 
-    private void CreateDescriptionHtmlWidget(string rawGogHtml)
-    {
-        var styledHtml = $$"""
-                           <!DOCTYPE html>
-                           <html>
-                           <head>
-                               <style>
-                                   :root {
-                                       color-scheme: dark light; /* Tells WebKit to respect system dark mode */
-                                   }
-                                   body {
-                                       font-family: system-ui, sans-serif;
-                                       background-color: transparent; /* Blends with GTK window background */
-                                       font-size: 14px;
-                                       line-height: 1.6;
-                                       padding: 0;
-                                       margin: 0;
-                                   }
-                                   img {
-                                       max-width: 100%;
-                                       height: auto;
-                                       border-radius: 8px; /* GNOME HIG style rounding for images */
-                                       margin-top: 12px;
-                                       margin-bottom: 12px;
-                                   }
-                                   a {
-                                       color: #3584e4; /* GNOME Accent Blue */
-                                       text-decoration: none;
-                                   }
-                               </style>
-                           </head>
-                           <body>
-                               {{rawGogHtml}}
-                           </body>
-                           </html>
-                           """;
-
-        var webView = WebView.New();
-        webView.SetBackgroundColor(new Gdk.RGBA { Red = 0, Green = 0, Blue = 0, Alpha = 0 });
-        webView.LoadHtml(styledHtml, null);
-
-        webView.OnDecidePolicy += (_, args) =>
-        {
-            var decision = args.Decision;
-
-            if (decision is NavigationPolicyDecision navigationDecision)
-            {
-                var type = navigationDecision.NavigationAction.GetNavigationType();
-                var uri = navigationDecision.NavigationAction.GetRequest().Uri;
-
-                if (type == NavigationType.LinkClicked)
-                {
-                    decision.Ignore();
-
-                    if (string.IsNullOrWhiteSpace(uri)) 
-                        return true;
-                    
-                    var confirmDialog = new ExternalLinkConfirmationDialog(_parentWindow, uri);
-                    confirmDialog.Present();
-
-                    return true;
-                }
-            }
-            
-            decision.Use();
-            return true;
-        };
-
-        _scrolledWindowDescription.SetChild(webView);
-        _scrolledWindowDescription.Vexpand = true;
-    }
-
     private void PopulateContentGroups(GameContentEntry contentEntry)
     {
         // Handling the DLCs:
@@ -762,7 +702,116 @@ public class GameDetailsView : IView
         return row;
     }
     
+    private void CreateDescriptionHtmlWidget(string rawGogHtml)
+    {
+        var styledHtml = $$"""
+                           <!DOCTYPE html>
+                           <html>
+                           <head>
+                               <style>
+                                   :root {
+                                       color-scheme: dark light; /* Tells WebKit to respect system dark mode */
+                                   }
+                                   body {
+                                       font-family: system-ui, sans-serif;
+                                       background-color: transparent;
+                                       font-size: 14px;
+                                       line-height: 1.6;
+                                       padding: 0;
+                                       margin: 0;
+                                   }
+                                   a {
+                                       color: #3584e4; /* GNOME Accent Blue */
+                                       text-decoration: none;
+                                   }
+                               </style>
+                           </head>
+                           <body>
+                               {{rawGogHtml}}
+                           </body>
+                           </html>
+                           """;
+
+        styledHtml = HtmlRemoveImgTags().Replace(styledHtml, string.Empty);
+        styledHtml = HtmlRemoveVideoTags().Replace(styledHtml, string.Empty);
+        styledHtml = HtmlRemoveSourceTags().Replace(styledHtml, string.Empty);
+        styledHtml = HtmlRemoveClosureVideoTags().Replace(styledHtml, string.Empty);
+        styledHtml = HtmlCompressMultipleBrTags().Replace(styledHtml, "<br>");
+        styledHtml = HtmlRemoveHrTags().Replace(styledHtml, string.Empty);
+        
+        var webView = WebView.New();
+        webView.SetBackgroundColor(new Gdk.RGBA { Red = 0, Green = 0, Blue = 0, Alpha = 0 });
+        webView.LoadHtml(styledHtml, null);
+
+        webView.OnDecidePolicy += (_, args) =>
+        {
+            var decision = args.Decision;
+
+            if (decision is NavigationPolicyDecision navigationDecision)
+            {
+                var type = navigationDecision.NavigationAction.GetNavigationType();
+                var uri = navigationDecision.NavigationAction.GetRequest().Uri;
+
+                if (type == NavigationType.LinkClicked)
+                {
+                    decision.Ignore();
+
+                    if (string.IsNullOrWhiteSpace(uri)) 
+                        return true;
+                    
+                    var confirmDialog = new ExternalLinkConfirmationDialog(_parentWindow, uri);
+                    confirmDialog.Present();
+
+                    return true;
+                }
+            }
+            
+            decision.Use();
+            return true;
+        };
+
+        webView.OnLoadChanged += async (sender, args) =>
+        {
+            if (args.LoadEvent != LoadEvent.Finished)
+                return;
+
+            await Task.Delay(50);
+
+            try
+            {
+                var result = await webView.EvaluateJavascriptAsync("document.body.scrollHeight;");
+
+                if (!result.IsNumber()) 
+                    return;
+                
+                var contentHeight = result.ToInt32();
+
+                GLib.Functions.IdleAdd(0, () =>
+                {
+                    webView.SetSizeRequest(-1, contentHeight);
+                    _scrolledWindowDescription.MinContentHeight = contentHeight + 50;
+                    return false;
+                });
+            }
+            catch (Exception e)
+            {
+                await Console.Out.WriteLineAsync($"[WARN] - Failed to calculate the WebView content height: {e.Message}");
+            }
+            
+        };
+
+        _scrolledWindowDescription.Child = webView;
+    }
+    
     // Properties:
     public string Identifier => "GameDetailsView";
     public Widget RootWidget => _rootOverlay;
+    
+    // Some Regex pre-compiled patterns:
+    [GeneratedRegex(@"<img\b[^>]*>")] private static partial Regex HtmlRemoveImgTags();
+    [GeneratedRegex(@"<video\b[^>]*>.*?</video>", RegexOptions.Singleline | RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveVideoTags();
+    [GeneratedRegex("</video>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveClosureVideoTags();
+    [GeneratedRegex(@"<source\b[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveSourceTags();
+    [GeneratedRegex(@"(<br\s*/?>\s*){2,}", RegexOptions.IgnoreCase)] private static partial Regex HtmlCompressMultipleBrTags();
+    [GeneratedRegex("<hr>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveHrTags();
 }
