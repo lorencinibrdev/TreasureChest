@@ -434,7 +434,7 @@ public class InstallerService
                 return false;
             }
 
-            MoveDirectoryContents(gamePayload, targetFolderPath);
+            MoveDirectoryContents(gamePayload, targetFolderPath, true);
             MakeGameBinariesExecutable(targetFolderPath);
 
             return true;
@@ -539,22 +539,6 @@ public class InstallerService
         throw new NotImplementedException("[ERROR] - MacOS installation is not implemented.");
     }
 
-    private static void MoveDirectoryContents(string sourceDir, string targetDir)
-    {
-        foreach (var file in Directory.GetFiles(sourceDir))
-        {
-            var dest = Path.Combine(targetDir, Path.GetFileName(file));
-            File.Move(file, dest, true);
-        }
-
-        foreach (var directory in Directory.GetDirectories(sourceDir))
-        {
-            var dest = Path.Combine(targetDir, Path.GetFileName(directory));
-            Directory.CreateDirectory(dest);
-            MoveDirectoryContents(directory, dest);
-        }
-    }
-
     private static void MakeGameBinariesExecutable(string targetDir)
     {
         var scripts = Directory.GetFiles(targetDir, "*.sh", SearchOption.AllDirectories);
@@ -614,36 +598,40 @@ public class InstallerService
     
     private static void MoveSupportFiles(string installFolder)
     {
-        var supportFolderPath = Path.Combine(installFolder, "__support", "app");
+        var supportFolderRootPath = Path.Combine(installFolder, "__support");
         
-        if (!Directory.Exists(supportFolderPath))
+        if (!Directory.Exists(supportFolderRootPath))
             return;
         
-        // // First, moving subdirectories:
-        var subdirs = Directory.GetDirectories(supportFolderPath);
-        
-        foreach (var subdir in subdirs)
-        {
-            var dirName = Path.GetFileName(subdir);
-            var targetDir = !string.IsNullOrWhiteSpace(dirName) ? Path.Combine(installFolder, dirName) : installFolder;
-            MoveDirectoryContents(subdir, targetDir);    
-        }
-        
-        // Now, moving special GOG Files (If Any):
-        var dosBoxFolder = string.Empty;
+        string[] supportSubFolders = ["app", "save", "add"];
 
-        if (Directory.Exists(Path.Combine(installFolder, "DOSBOX")))
+        foreach (var subFolder in supportSubFolders)
         {
-            dosBoxFolder = Path.Combine(installFolder, "DOSBOX");
+            var supportFolderPath = Path.Combine(supportFolderRootPath, subFolder);
+
+            if (!Directory.Exists(supportFolderPath))
+                continue;
+
+            // First, moving subdirectories: 
+            foreach (var subDir in Directory.GetDirectories(supportFolderPath))
+            {
+                var dirName = Path.GetFileName(subDir);
+                var targetDir = !string.IsNullOrWhiteSpace(dirName) ? Path.Combine(installFolder, dirName) : installFolder;
+                Directory.CreateDirectory(targetDir);
+                MoveDirectoryContents(subDir, targetDir, false);
+            }
         }
-        else if (Directory.Exists(Path.Combine(installFolder, "dosbox")))
-        {
-            dosBoxFolder = Path.Combine(installFolder, "dosbox");
-        }
+        
+        // Moving any DOSBOX-related configs (if any):
+        var dosBoxFolder = Directory.Exists(Path.Combine(installFolder, "DOSBOX"))
+            ? Path.Combine(installFolder, "DOSBOX")
+            : Directory.Exists(Path.Combine(installFolder, "dosbox"))
+            ? Path.Combine(installFolder, "dosbox")
+            : string.Empty;
 
         if (!string.IsNullOrWhiteSpace(dosBoxFolder))
         {
-            var dosboxConfigs = Directory.GetFiles(supportFolderPath, "*.conf")
+            var dosboxConfigs = Directory.GetFiles(supportFolderRootPath, "*.conf", SearchOption.AllDirectories)
                 .Where(f => Path.GetFileName(f).StartsWith("dosbox", StringComparison.InvariantCultureIgnoreCase))
                 .ToList();
 
@@ -658,10 +646,8 @@ public class InstallerService
             }
         }
         
-        // Finally, moving any remaining file to the root folder:
-        var remainingFiles = Directory.GetFiles(supportFolderPath);
-
-        foreach (var remainingFile in remainingFiles)
+        // Moving any remaining file to the root folder:
+        foreach (var remainingFile in Directory.GetFiles(supportFolderRootPath))
         {
             var targetPath = Path.Combine(installFolder, Path.GetFileName(remainingFile));
             
@@ -669,6 +655,30 @@ public class InstallerService
                 continue;
             
             File.Move(remainingFile, targetPath);
+        }
+        
+        // Finally, some GOG older games have data in the 'app/' folder:
+        var rootAppFolder = Path.Combine(installFolder, "app");
+
+        if (Directory.Exists(rootAppFolder))
+        {
+            MoveDirectoryContents(rootAppFolder, installFolder, false);
+        }
+    }
+    
+    private static void MoveDirectoryContents(string sourceDirectoryPath, string targetDirectoryPath, bool overwrite)
+    {
+        foreach (var filePath in Directory.GetFiles(sourceDirectoryPath))
+        {
+            var destinationPath = Path.Combine(targetDirectoryPath, Path.GetFileName(filePath));
+            File.Move(filePath, destinationPath, overwrite);
+        }
+
+        foreach (var directoryPath in Directory.GetDirectories(sourceDirectoryPath))
+        {
+            var destinationPath = Path.Combine(targetDirectoryPath, Path.GetFileName(directoryPath));
+            Directory.CreateDirectory(destinationPath);
+            MoveDirectoryContents(directoryPath, destinationPath, overwrite);
         }
     }
     
