@@ -97,7 +97,7 @@ public class DownloadQueueService
 
         if (task.Cts.IsCancellationRequested)
         {
-            task.Status = EDownloadStatus.Cancelled;
+            HandleTaskCancellation(task);
             return task;
         }
         
@@ -216,26 +216,7 @@ public class DownloadQueueService
         }
         catch (OperationCanceledException)
         {
-            CleanUpPartialFile(task);
-
-            lock (_manifestWriteLock)
-            {
-                task.Status = EDownloadStatus.Cancelled;
-                
-                if (!IsDownloadingGame(task.GameId))
-                {
-                    if (LibraryService.Instance.TryGetGameEntry(task.GameId, out var gameEntry))
-                    {
-                        ClearDownloadedFiles(gameEntry);
-                    }
-                    else
-                    {
-                        LibraryService.Instance.SetGameState(task.GameId, EGameState.Available);
-                    }
-                }
-                
-                NotifyUi(() => TaskUpdated?.Invoke(task));
-            }
+            HandleTaskCancellation(task);
         }
         finally
         {
@@ -245,12 +226,22 @@ public class DownloadQueueService
             }
         }
     }
-
-    public static void CancelDownload(DownloadTask task)
+    
+    public static void CancelDownload(long gameId, string gameSlug)
     {
-        if (task.Status is EDownloadStatus.Downloading or EDownloadStatus.Queued)
+        var tasks = Instance.GetTasksForGame(gameId);
+
+        if (tasks.Count == 0)
+            return;
+                    
+        Console.Out.WriteLine($"[INFO] - Cancelling the download of {tasks.Count} files, for '{gameSlug}'");
+
+        foreach (var downloadTask in tasks)
         {
-            task.Cts.Cancel();
+            if (downloadTask.Status is not (EDownloadStatus.Downloading or EDownloadStatus.Queued or EDownloadStatus.Validating)) 
+                continue;
+            
+            downloadTask.Cts.Cancel();
         }
     }
 
@@ -300,12 +291,12 @@ public class DownloadQueueService
             ? downloadManifest.DownloadDirectoryPath
             : Path.Join(SettingsService.Instance.DownloadsFolder, gameSlug);
         
-        if (!Directory.Exists(downloadDir)) 
-            return;
-        
         try
         {
-            Console.Out.WriteLine($"[INFO] - Cleaning up data on path '{downloadDir}'");    
+            if (!Directory.Exists(downloadDir)) 
+                return;
+            
+            Console.Out.WriteLine($"[INFO] - Cleaning up data on path '{downloadDir}'");
             Directory.Delete(downloadDir, true);
             Console.Out.WriteLine($"[INFO] - Done cleaning data for {gameSlug}");
         }
@@ -378,13 +369,13 @@ public class DownloadQueueService
             var xmlDoc = XDocument.Parse(xmlContent);
             var md5Value = xmlDoc.Element("file")?.Attribute("md5")?.Value;
             
-            await Console.Out.WriteLineAsync($"[INFO] - Fetched MD5 hash: '{md5Value}'");
+            await Console.Out.WriteLineAsync($"[INFO] - Fetched MD5 hash: '{md5Value}'", token);
             
             return md5Value;
         }
         catch (Exception e)
         {
-            await Console.Out.WriteLineAsync($"[WARNING] - Failed to fetch or parse MD5 manifest from {finalUrl}: {e.Message}");
+            await Console.Out.WriteLineAsync($"[WARNING] - Failed to fetch or parse MD5 manifest from {finalUrl}: {e.Message}", token);
             return null;
         }
     }
@@ -432,6 +423,30 @@ public class DownloadQueueService
             // Writing back to the file:
             var jsonText = JsonSerializer.Serialize(jsonData, _serializerOptions);
             File.WriteAllText(manifestPath, jsonText);
+        }
+    }
+
+    private void HandleTaskCancellation(DownloadTask task)
+    {
+        CleanUpPartialFile(task);
+
+        lock (_manifestWriteLock)
+        {
+            task.Status = EDownloadStatus.Cancelled;
+                
+            if (!IsDownloadingGame(task.GameId))
+            {
+                if (LibraryService.Instance.TryGetGameEntry(task.GameId, out var gameEntry))
+                {
+                    ClearDownloadedFiles(gameEntry);
+                }
+                else
+                {
+                    LibraryService.Instance.SetGameState(task.GameId, EGameState.Available);
+                }
+            }
+                
+            NotifyUi(() => TaskUpdated?.Invoke(task));
         }
     }
     

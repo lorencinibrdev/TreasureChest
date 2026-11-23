@@ -7,7 +7,6 @@ using TreasureChest.Source.Services.GOG;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views;
 using TreasureChest.Source.Views.Library;
-using TreasureChest.Source.Widgets;
 using Application = Adw.Application;
 using ApplicationWindow = Adw.ApplicationWindow;
 using HeaderBar = Adw.HeaderBar;
@@ -153,7 +152,6 @@ public partial class MainWindow
         var downloadMenuButton = MenuButton.New();
         downloadMenuButton.SetIconName("open-menu-symbolic");
         downloadMenuButton.TooltipText = "Main Menu";
-        _ = new DownloadsPopover(downloadMenuButton);
         
         headerBar.PackEnd(menuButton);
         headerBar.PackEnd(librarySortAndFilterButton);
