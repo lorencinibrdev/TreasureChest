@@ -90,10 +90,16 @@ public class DownloadQueueService
             Language = language
         };
         
+        _allTasks.Add(task);
+        
         // Trying to fetch the md5 for later verification:
         task.Md5Sum = await FetchMd5Hash(url, task.Cts.Token);
-        
-        _allTasks.Add(task);
+
+        if (task.Cts.IsCancellationRequested)
+        {
+            task.Status = EDownloadStatus.Cancelled;
+            return task;
+        }
         
         NotifyUi(() => TaskAdded?.Invoke(task));
         _ = ProcessTaskAsync(task);
@@ -111,15 +117,23 @@ public class DownloadQueueService
 
     public List<DownloadTask> GetTasksForGame(long gameId)
     {
-        return [.. _allTasks.Where(t => t.GameId == gameId)];
+        return
+        [
+            .. _allTasks.Where(t =>
+                t.GameId == gameId &&
+                t.Status is EDownloadStatus.Queued or EDownloadStatus.Downloading or EDownloadStatus.Validating)
+        ];
     }
 
     private async Task ProcessTaskAsync(DownloadTask task)
     {
-        await _semaphoreSlim.WaitAsync();
-
+        var semaphoreAcquired = false;
+        
         try
         {
+            await _semaphoreSlim.WaitAsync(task.Cts.Token);
+            semaphoreAcquired = true;
+            
             task.Status = EDownloadStatus.Downloading;
             NotifyUi(() => TaskUpdated?.Invoke(task));
 
@@ -163,7 +177,7 @@ public class DownloadQueueService
                         NotifyUi(() => TaskUpdated?.Invoke(task));
                     }
                 }
-                catch (Exception)
+                finally
                 {
                     System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
                 }
@@ -202,13 +216,33 @@ public class DownloadQueueService
         }
         catch (OperationCanceledException)
         {
-            task.Status = EDownloadStatus.Cancelled;
             CleanUpPartialFile(task);
-            NotifyUi(() => TaskUpdated?.Invoke(task));
+
+            lock (_manifestWriteLock)
+            {
+                task.Status = EDownloadStatus.Cancelled;
+                
+                if (!IsDownloadingGame(task.GameId))
+                {
+                    if (LibraryService.Instance.TryGetGameEntry(task.GameId, out var gameEntry))
+                    {
+                        ClearDownloadedFiles(gameEntry);
+                    }
+                    else
+                    {
+                        LibraryService.Instance.SetGameState(task.GameId, EGameState.Available);
+                    }
+                }
+                
+                NotifyUi(() => TaskUpdated?.Invoke(task));
+            }
         }
         finally
         {
-            _semaphoreSlim.Release();
+            if (semaphoreAcquired)
+            {
+                _semaphoreSlim.Release();    
+            }
         }
     }
 
@@ -261,30 +295,23 @@ public class DownloadQueueService
     {
         var gameId = gameEntry.Id;
         var gameSlug = gameEntry.Slug;
-        
-        if (!TryGetDownloadManifest(gameSlug, out var downloadManifest))
-        {
-            Console.Out.WriteLine($"[WARN] - Could not find the download manifest for {gameSlug}");
-            return;
-        }
-        
-        Console.Out.WriteLine($"[INFO] - Cleaning up Downloaded data on path: {downloadManifest.DownloadDirectoryPath}");
 
-        if (!Directory.Exists(downloadManifest.DownloadDirectoryPath))
-        {
-            Console.Out.WriteLine($"[WARN] - Could not find the downloaded data folder: {downloadManifest.DownloadDirectoryPath}");
-            _downloadedCache.TryRemove(gameSlug, out _);
+        var downloadDir = TryGetDownloadManifest(gameSlug, out var downloadManifest)
+            ? downloadManifest.DownloadDirectoryPath
+            : Path.Join(SettingsService.Instance.DownloadsFolder, gameSlug);
+        
+        if (!Directory.Exists(downloadDir)) 
             return;
-        }
-
+        
         try
         {
-            Directory.Delete(downloadManifest.DownloadDirectoryPath, true);
+            Console.Out.WriteLine($"[INFO] - Cleaning up data on path '{downloadDir}'");    
+            Directory.Delete(downloadDir, true);
             Console.Out.WriteLine($"[INFO] - Done cleaning data for {gameSlug}");
         }
         catch (Exception e)
         {
-            Console.Out.WriteLine($"[WARN] - Failed to recursively remove the download folder: {downloadManifest.DownloadDirectoryPath}");
+            Console.Out.WriteLine($"[WARN] - Failed to recursively remove the download folder: {downloadDir}");
             Console.Out.WriteLine($"[WARN] - {e.Message}");
         }
         finally
@@ -320,7 +347,7 @@ public class DownloadQueueService
 
     private static async Task<bool> VerifyFileMd5Async(string filePath, string expectedMd5, CancellationToken token)
     {
-        await Console.Out.WriteLineAsync($"[INFO] - Checking MD5 hash for file: '{filePath}'");
+        await Console.Out.WriteLineAsync($"[INFO] - Checking MD5 hash for file: '{filePath}'", token);
         using var md5 = System.Security.Cryptography.MD5.Create();
 
         await using var stream = new FileStream(
@@ -335,8 +362,8 @@ public class DownloadQueueService
         var hashBytes = await md5.ComputeHashAsync(stream, token);
         var hashString = Convert.ToHexString(hashBytes).ToLowerInvariant();
         
-        await Console.Out.WriteLineAsync($"[INFO] - Expected: '{expectedMd5}'");
-        await Console.Out.WriteLineAsync($"[INFO] - Got: '{hashString}'");
+        await Console.Out.WriteLineAsync($"[INFO] - Expected: '{expectedMd5}'", token);
+        await Console.Out.WriteLineAsync($"[INFO] - Got: '{hashString}'", token);
         
         return string.Equals(hashString, expectedMd5.ToLowerInvariant());
     }
