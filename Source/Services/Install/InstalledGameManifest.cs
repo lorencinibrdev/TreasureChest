@@ -1,14 +1,12 @@
-using TreasureChest.Source.Services.Runners;
-
 namespace TreasureChest.Source.Services.Install;
 
-public readonly record struct InstalledGameManifest(
-    long GameId,
-    string Slug,
-    string InstallDirectoryPath,
-    string ExecutablePath,
-    string? Arguments,
-    string? WorkingDirectory,
-    DateTime InstallDate,
-    ERunnerType? RunnerType
-);
+public class InstalledGameManifest
+{
+    // Properties:
+    public required long GameId { get; init; }
+    public required string GameSlug { get; init; }
+    public required string InstallDirectoryPath { get; init; }
+    public required GogPlayTaskEntry PrimaryTask { get; init; }
+    public List<GogPlayTaskEntry> OtherTasks { get; init; } = [];
+    public DateTime InstallDate { get; init; } = DateTime.Now;
+}

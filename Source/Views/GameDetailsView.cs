@@ -3,7 +3,6 @@ using Adw;
 using Gtk;
 using TreasureChest.Source.Dialogs;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.GOG;
 using TreasureChest.Source.Services.Install;
@@ -11,9 +10,6 @@ using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views.Library;
 using WebKit;
-using HeaderBar = Adw.HeaderBar;
-using MessageDialog = Adw.MessageDialog;
-using Spinner = Adw.Spinner;
 
 namespace TreasureChest.Source.Views;
 
@@ -29,7 +25,7 @@ public partial class GameDetailsView : IView
     
     private readonly GameEntry _game;
 
-    private readonly Spinner _loadingSpinner;
+    private readonly Adw.Spinner _loadingSpinner;
     private readonly Box _contentBox;
 
     private uint _installProgressPulseTimeoutId;
@@ -87,7 +83,7 @@ public partial class GameDetailsView : IView
         contentClamp.MarginStart = 24;
         contentClamp.MarginEnd = 24;
 
-        _loadingSpinner = Spinner.New();
+        _loadingSpinner = Adw.Spinner.New();
         _loadingSpinner.SetSizeRequest(48, 48);
         _loadingSpinner.Halign = Align.Center;
         _loadingSpinner.Valign = Align.Center;
@@ -114,7 +110,6 @@ public partial class GameDetailsView : IView
         _scrolledWindowDescription.MarginEnd = 12;
         _scrolledWindowDescription.HasFrame = false;
         _scrolledWindowDescription.HscrollbarPolicy = PolicyType.Never;
-        // _scrolledWindowDescription.VscrollbarPolicy = PolicyType.Never;
         _scrolledWindowDescription.PropagateNaturalHeight = true;
         textCard.Append(_scrolledWindowDescription);
         
@@ -147,7 +142,7 @@ public partial class GameDetailsView : IView
 
         _rootOverlay.Child = scrolledWindow;
 
-        var headerBar = HeaderBar.New();
+        var headerBar = Adw.HeaderBar.New();
         headerBar.AddCssClass("flat");
         headerBar.Valign = Align.Start;
         
@@ -242,26 +237,8 @@ public partial class GameDetailsView : IView
             {
                 if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloaded)) is not SplitButton splitButton)
                     return false;
-                
-                var setupFilesPath = Path.Join(SettingsService.Instance.DownloadsFolder, _game.Slug);
-                var (installationType, _) = InstallerService.IdentifyGameInstallationType(_game.Slug, setupFilesPath);
 
-                switch (installationType)
-                {
-                    case EGameInstallationType.LinuxNative:
-                        splitButton.Label = "Install Game (Linux Native)";
-                        break;
-                    case EGameInstallationType.WindowsInstaller:
-                        splitButton.Label = "Install Game (Windows)";
-                        break;
-                    case EGameInstallationType.MacOsInstaller:
-                        splitButton.Label = "Install Game (MacOS Native)";
-                        break;
-                    case EGameInstallationType.Unknown:
-                    default:
-                        splitButton.Label = "Install Game (Unknown Installer Type)";
-                        break;
-                }
+                splitButton.Label = "Install Downloaded Game";
             }
             
             return false;
@@ -290,6 +267,13 @@ public partial class GameDetailsView : IView
             };
             
             var configureLaunchParametersButton = Button.NewWithLabel("Change Launch Parameters");
+
+            configureLaunchParametersButton.OnClicked += (_, _) =>
+            {
+                installedGameOptionsPopover.Popdown();
+                var modal = new LaunchParametersDialog(_parentWindow, _game);
+                modal.Present();
+            };
             
             installedGameOptionsBox.Append(uninstallButton);
             installedGameOptionsBox.Append(configureLaunchParametersButton);
@@ -300,9 +284,16 @@ public partial class GameDetailsView : IView
             playSplitButton.AddCssClass("suggested-action");
             playSplitButton.AddCssClass("pill");
             playSplitButton.Popover = installedGameOptionsPopover;
+            
             playSplitButton.OnClicked += (_, _) =>
             {
-                _ = LauncherService.Instance.LaunchGameAsync(_game);
+                _ = LauncherService.LaunchGameAsync(_game, CancellationToken.None);
+
+                // 1. Resolve the config (either user's custom settings or fallback to GOG defaults)
+                // var config = LaunchConfigFactory.GetOrCreateConfig(installManifest);
+
+                // 2. Pass it to the LauncherService to handle process execution and UI states
+                // _ = LauncherService.Instance.LaunchGameAsync(_game, config);
             };
 
             _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
@@ -337,43 +328,34 @@ public partial class GameDetailsView : IView
         // Checking for the downloaded state:
         if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloaded)) is not SplitButton)
         {
-            var setupFilesPath = Path.Join(SettingsService.Instance.DownloadsFolder, _game.Slug);
-            
             // The button:
             var installSplitButton = SplitButton.New();
             installSplitButton.AddCssClass("suggested-action");
             installSplitButton.AddCssClass("pill");
-            
-            // Trying to quickly fetch the game install type for the downloaded files:
-            var (installationType, _) = InstallerService.IdentifyGameInstallationType(_game.Slug, setupFilesPath);
-
-            switch (installationType)
-            {
-                case EGameInstallationType.LinuxNative:
-                    installSplitButton.Label = "Install Game (Linux Native)";
-                    break;
-                case EGameInstallationType.WindowsInstaller:
-                    installSplitButton.Label = "Install Game (Windows)";
-                    break;
-                case EGameInstallationType.MacOsInstaller:
-                    installSplitButton.Label = "Install Game (MacOS Native)";
-                    break;
-                case EGameInstallationType.Unknown:
-                default:
-                    installSplitButton.Label = "Install Game (Unknown Installer Type)";
-                    break;
-            }
+            installSplitButton.Label = "Install Game";
             
             // The menu button, with the popover options:
             var downloadedGameOptionsPopover = Popover.New();
             var downloadedGameOptionsBox = Box.New(Orientation.Vertical, 6);
-            downloadedGameOptionsBox.Append(Button.NewWithLabel("Clear Downloaded Data"));
+            
+            // The buttons on the popover:
+            var clearDownloadedDataButton = Button.NewWithLabel("Clear Downloaded Data");
+            downloadedGameOptionsBox.Append(clearDownloadedDataButton);
+            
+            clearDownloadedDataButton.OnClicked += (_, _) =>
+            {
+                ConfirmClearDownloadedData(_game);
+            };
+            
             downloadedGameOptionsPopover.Child = downloadedGameOptionsBox;
             
             installSplitButton.Popover = downloadedGameOptionsPopover;
             installSplitButton.OnClicked += (_, _) =>
             {
-                _ = InstallerService.Instance.InstallAsync(_game, setupFilesPath);
+                if (!DownloadQueueService.Instance.TryGetDownloadManifest(_game.Slug, out var downloadManifest))
+                    return;
+                
+                _ = InstallerService.Instance.InstallAsync(_game, downloadManifest);
             };
 
             _mainButtonStack.AddNamed(installSplitButton, nameof(EGameState.Downloaded));
@@ -420,11 +402,6 @@ public partial class GameDetailsView : IView
         _mainButtonStack.SetVisibleChildName(currentGameState.ToString());
     }
     
-    private void OpenFullDescriptionModal(string fullDescription)
-    {
-        
-    }
-    
     private async Task LoadBackgroundImageAsync(Picture bgPicture)
     {
         var localBgImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(_game.Id, EImageType.Background, _game.ImageLinks.Background);
@@ -460,7 +437,7 @@ public partial class GameDetailsView : IView
             string.IsNullOrWhiteSpace(responseGameDescription.Description.Full))
             return;
         
-        // Showing the html description render:
+        // Showing the HTML description render:
         CreateDescriptionHtmlWidget(responseGameDescription.Description.Lead);
 
         _loadingSpinner.Visible = false;
@@ -493,7 +470,7 @@ public partial class GameDetailsView : IView
             linuxIcon.Visible = false;
             macOsIcon.Visible = false;
             
-            foreach (var platform in availablePlatforms)
+            foreach (var platform in availablePlatforms.Reverse())
             {
                 switch (platform.Platform)
                 {
@@ -579,6 +556,8 @@ public partial class GameDetailsView : IView
                         gameId: _game.Id,
                         title: $"{downloadItem.Name} ({downloadItem.Size})",
                         _game.Slug,
+                        platformContent.Platform,
+                        language,
                         url: finalUrl,
                         targetFileName: fileName
                     );
@@ -614,7 +593,7 @@ public partial class GameDetailsView : IView
         extraBox.Append(titleLabel);
         extraBox.Append(warningLabel);
         
-        var dialog = MessageDialog.New(
+        var dialog = Adw.MessageDialog.New(
             parent: _parentWindow,
             heading: I18n._("Uninstall Game?"),
             body: I18n._("Are you sure you want to completely uninstall the game?"));
@@ -638,6 +617,48 @@ public partial class GameDetailsView : IView
         
         dialog.Present();
     }
+    
+    private void ConfirmClearDownloadedData(GameEntry gameEntry)
+    {
+        var extraBox = Box.New(Orientation.Vertical, 12);
+        extraBox.MarginTop = 12;
+        extraBox.MarginBottom = 12;
+        
+        var titleLabel = Label.New(gameEntry.Title);
+        titleLabel.AddCssClass("title-4");
+
+        var warningLabel = Label.New(I18n._("This will delete all downloaded files."));
+        warningLabel.Wrap = true;
+        warningLabel.Justify = Justification.Center;
+        warningLabel.AddCssClass("warning");
+        
+        extraBox.Append(titleLabel);
+        extraBox.Append(warningLabel);
+        
+        var dialog = Adw.MessageDialog.New(
+            parent: _parentWindow,
+            heading: I18n._("Clear Downloaded Installer Data?"),
+            body: I18n._("Are you sure you want to completely delete the downloaded installers for the game?"));
+
+        dialog.ExtraChild = extraBox;
+        
+        dialog.AddResponse("cancel", I18n._("Cancel"));
+        dialog.AddResponse("clear", I18n._("Clear"));
+        
+        dialog.SetResponseAppearance("clear", ResponseAppearance.Destructive);
+        dialog.SetDefaultResponse("cancel");
+        dialog.SetCloseResponse("cancel");
+
+        dialog.OnResponse +=  async(_, args) =>
+        {
+            if (args.Response == "clear")
+            {
+                DownloadQueueService.Instance.ClearDownloadedFiles(gameEntry);
+            }
+        };
+        
+        dialog.Present();
+    }
 
     private void PopulateContentGroups(GameContentEntry contentEntry)
     {
@@ -648,7 +669,7 @@ public partial class GameDetailsView : IView
         {
             var languagesAvailable = string.Join(", ", dlcContent.Downloads.Keys);
                 
-            var row = CreateDownloadRow(dlcContent.Title, "DLC Content", languagesAvailable);
+            var row = CreateDownloadRow(dlcContent.Title, "DLC Content", languagesAvailable, string.Empty, false);
             _dlcGroup.Add(row);
         }
 
@@ -657,12 +678,12 @@ public partial class GameDetailsView : IView
             
         foreach (var extraContent in contentEntry.Extras)
         {
-            var row = CreateDownloadRow(extraContent.Name, extraContent.Type, extraContent.Size);
+            var row = CreateDownloadRow(extraContent.Name, extraContent.Type, extraContent.Size, extraContent.ManualUrl, false);
             _extrasGroup.Add(row);
         }
     }
     
-    private static ActionRow CreateDownloadRow(string title, string typeLabel, string? size)
+    private ActionRow CreateDownloadRow(string title, string typeLabel, string? size, string manualUrl, bool enableDownload)
     {
         var row = ActionRow.New();
 
@@ -692,9 +713,50 @@ public partial class GameDetailsView : IView
         downloadButton.AddCssClass("flat");
         downloadButton.AddCssClass("circular");
 
-        downloadButton.OnClicked += (_, _) =>
+        if (!enableDownload)
         {
-            Console.Out.WriteLine($"[INFO] - Starting download for: {title}");
+            downloadButton.TooltipText = "Base game not downloaded. Download it first.";
+        }
+        
+        downloadButton.Sensitive = enableDownload;
+
+        downloadButton.OnClicked += async (_, _) =>
+        {
+            try
+            {
+                if (!DownloadQueueService.Instance.TryGetDownloadManifest(_game.Slug, out var downloadManifest))
+                {
+                    await Console.Out.WriteLineAsync($"[ERROR] - Base game is not downloaded. Cannot download extra content: {manualUrl}");
+                    return;
+                }
+                
+                var finalUrl = await GogService.Instance.ResolveFinalDownloadUrlAsync(manualUrl);
+                var uri = new Uri(finalUrl);
+                var fileName = Path.GetFileName(uri.AbsolutePath);
+            
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    await Console.Out.WriteLineAsync($"[ERROR] - Failed to determine the downloadable content target filename: {manualUrl}");
+                    return;
+                }
+            
+                await Console.Out.WriteLineAsync($"[INFO] - Manual URL: {manualUrl}");
+                await Console.Out.WriteLineAsync($"[INFO] - Download URL: {finalUrl}");
+            
+                _ = await DownloadQueueService.Instance.EnqueueDownload(
+                    gameId: _game.Id,
+                    title: $"{title} ({row.Subtitle})",
+                    _game.Slug,
+                    downloadManifest.Platform,
+                    downloadManifest.Language,
+                    url: finalUrl,
+                    targetFileName: fileName
+                );
+            }
+            catch
+            {
+                // ignored
+            }
         };
 
         row.AddSuffix(pillBox);
@@ -770,7 +832,7 @@ public partial class GameDetailsView : IView
             return true;
         };
 
-        webView.OnLoadChanged += async (sender, args) =>
+        webView.OnLoadChanged += async (_, args) =>
         {
             if (args.LoadEvent != LoadEvent.Finished)
                 return;

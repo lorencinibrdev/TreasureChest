@@ -7,5 +7,6 @@ public enum ERunnerType
     ScummVm,
     Wine,
     Proton,
-    InnoExtract
+    InnoExtract,
+    Unknown
 }

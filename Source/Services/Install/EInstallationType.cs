@@ -1,6 +1,6 @@
 namespace TreasureChest.Source.Services.Install;
 
-public enum EGameInstallationType
+public enum EInstallationType
 {
     Unknown,
     LinuxNative,

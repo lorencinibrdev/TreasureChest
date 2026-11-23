@@ -47,7 +47,7 @@ public class RunnerManagerService
             Console.Out.WriteLine("[WARN] - Could not find the requested runner in system PATH. Falling back to downloaded version...");
         }
 
-        var baseRuntimeDir = Path.Combine(SettingsService.Instance.RuntimesFolder, runnerType.ToString().ToLower());
+        var baseRuntimeDir = Path.Combine(SettingsService.Instance.RuntimesFolder, runnerType.ToString().ToLowerInvariant());
         var binaryPath = FindBinaryInDownloadedPath(binaryName, baseRuntimeDir) ?? string.Empty;
 
         Console.Out.WriteLine(!string.IsNullOrWhiteSpace(binaryPath)
@@ -59,7 +59,8 @@ public class RunnerManagerService
             Type = runnerType,
             Name = runnerType.ToString(),
             ExecutablePath = binaryPath,
-            IsSystemInstalled = false
+            IsSystemInstalled = false,
+            LibraryPathOverride = PopulateLibraryOverrideVariable(binaryPath)
         };
     }
 
@@ -76,7 +77,7 @@ public class RunnerManagerService
             return false;
         
         // Now, we extract and install it on the target folder:
-        var targetDir = Path.Combine(SettingsService.Instance.RuntimesFolder, runnerType.ToString().ToLower());
+        var targetDir = Path.Combine(SettingsService.Instance.RuntimesFolder, runnerType.ToString().ToLowerInvariant());
 
         try
         {
@@ -89,6 +90,39 @@ public class RunnerManagerService
                 File.Delete(downloadedFile);
             }   
         }
+    }
+
+    public static bool IsCommandAvailable(string commandName)
+    {
+        if (string.IsNullOrWhiteSpace(commandName))
+            return false;
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+
+        if (string.IsNullOrWhiteSpace(pathEnv))
+            return false;
+
+        const UnixFileMode executeMask = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+
+        foreach (var dirPath in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fullPath = Path.Combine(dirPath, commandName);
+
+            if (!File.Exists(fullPath))
+                continue;
+
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            {
+                if ((File.GetUnixFileMode(fullPath) & executeMask) != 0)
+                    return true;
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task<string?> DownloadRunnerAsync(string downloadUrl, string targetDir)
@@ -121,10 +155,15 @@ public class RunnerManagerService
         }
     }
 
-    private async Task<bool> ExtractDownloadedRunnerAsync(string filePath, string targetDir)
+    private static async Task<bool> ExtractDownloadedRunnerAsync(string filePath, string targetDir)
     {
         await Console.Out.WriteLineAsync($"[INFO] - Extracting and installing runner from file: {filePath}");
         await Console.Out.WriteLineAsync($"[INFO] - Install path: {targetDir}");
+
+        if (Directory.Exists(targetDir))
+        {
+            Directory.Delete(targetDir, true);
+        }
         
         Directory.CreateDirectory(targetDir);
         
@@ -250,6 +289,39 @@ public class RunnerManagerService
             ERunnerType.Wine => "https://github.com/Kron4ek/Wine-Builds/releases/download/11.21/wine-11.21-staging-amd64-wow64.tar.xz",
             _ => throw new NotImplementedException($"No direct download URL configured for {runnerType}")
         };
+    }
+
+    private static string PopulateLibraryOverrideVariable(string runnerExecutablePath)
+    {
+        if (string.IsNullOrWhiteSpace(runnerExecutablePath))
+            return string.Empty;
+        
+        var binaryDir = Path.GetDirectoryName(runnerExecutablePath);
+
+        if (string.IsNullOrWhiteSpace(binaryDir))
+            return string.Empty;
+
+        var rootDir = Path.GetFileName(binaryDir).Equals("bin", StringComparison.OrdinalIgnoreCase)
+            ? Directory.GetParent(binaryDir)?.FullName ?? binaryDir
+            : binaryDir;
+        
+        var libDirs = new[]
+        {
+            Path.Combine(rootDir, "lib"),
+            Path.Combine(rootDir, "lib64"),
+        }.Where(Directory.Exists).ToList();
+
+        if (libDirs.Count == 0)
+            return string.Empty;
+        
+        var existingPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH");
+
+        if (!string.IsNullOrWhiteSpace(existingPath))
+        {
+            libDirs.Add(existingPath);
+        }
+        
+        return string.Join(":", libDirs);
     }
     
     // Properties:

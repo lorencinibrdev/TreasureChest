@@ -1,3 +1,5 @@
+using TreasureChest.Source.Helpers;
+
 namespace TreasureChest.Source.Services.Downloads;
 
 public class DownloadTask
@@ -5,11 +7,14 @@ public class DownloadTask
     // Properties:
     public string Id { get; } = Guid.NewGuid().ToString();
     public required long GameId { get; init; }
+    public required string GameSlug { get; init; }
     public string Title { get; init; } = string.Empty;
     public string DownloadUrl { get; init; } = string.Empty;
     public string TargetFileName { get; init; } = string.Empty;
     public string DestinationFolderPath { get; init; } = string.Empty;
+    public required ESystemPlatform Platform { get; init; }
     public string? Md5Sum { get; set; }
+    public string? Language { get; init; }
     public EDownloadStatus Status { get; set; } = EDownloadStatus.Queued;
     public long TotalBytesDownloaded { get; set; }
     public long TotalBytes { get; set; }

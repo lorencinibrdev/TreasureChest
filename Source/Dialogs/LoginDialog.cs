@@ -1,17 +1,14 @@
 using System.Web;
 using Gtk;
-using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.GOG;
 using WebKit;
-using Dialog = Adw.Dialog;
-using HeaderBar = Adw.HeaderBar;
 
 namespace TreasureChest.Source.Dialogs;
 
 public class LoginDialog
 {
     // Private Members:
-    private readonly Dialog _modalDialog;
+    private readonly Adw.Dialog _modalDialog;
     private readonly WebView _webView;
     private readonly Window _parentWindow;
     private readonly TaskCompletionSource<string?> _tcs = new();
@@ -20,7 +17,7 @@ public class LoginDialog
     {
         _parentWindow = parentWindow;
         
-        _modalDialog = Dialog.New();
+        _modalDialog = Adw.Dialog.New();
         _modalDialog.Title = "Login";
         _modalDialog.ContentWidth = 480;
         _modalDialog.ContentHeight = 640;

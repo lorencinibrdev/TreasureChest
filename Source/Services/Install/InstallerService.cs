@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Helpers.GOG.Responses;
 using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Services.Runners;
@@ -24,55 +23,67 @@ public class InstallerService
         
         Directory.CreateDirectory(ManifestsDirectory);
         
-        // Pre-loading all json manifests available:
-        foreach (var manifestJsonFiles in Directory.GetFiles(ManifestsDirectory, "*.json"))
+        // Preloading all JSON manifests available:
+        foreach (var manifestJsonFilePath in Directory.GetFiles(ManifestsDirectory, "*.json"))
         {
-            var jsonText = File.ReadAllText(manifestJsonFiles);
+            var jsonText = File.ReadAllText(manifestJsonFilePath);
 
             if (string.IsNullOrWhiteSpace(jsonText))
                 continue;
             
             var manifestEntry = JsonSerializer.Deserialize<InstalledGameManifest>(jsonText, _serializerOptions);
 
-            if (string.IsNullOrWhiteSpace(manifestEntry.Slug))
-                continue;
-
-            if (manifestEntry.RunnerType is null)
+            if (manifestEntry is null)
             {
-                var runner = IdentifyRunnerType(manifestEntry.InstallDirectoryPath, manifestEntry.ExecutablePath);
-                manifestEntry = manifestEntry with { RunnerType = runner };
-                RegisterInstallation(manifestEntry);
+                Console.Out.WriteLine($"[WARN] - Malformed InstallManifest Json structure on file: {manifestJsonFilePath}");
+                continue;
             }
 
-            _manifestCache[manifestEntry.Slug] = manifestEntry;
+            if (string.IsNullOrWhiteSpace(manifestEntry.GameSlug))
+                continue;
+
+            _manifestCache[manifestEntry.GameSlug] = manifestEntry;
         }
         
         Console.Out.WriteLine($"[INFO] - Pre-Loaded {_manifestCache.Count} json manifest files.");
     }
 
-    public async Task<bool> InstallAsync(GameEntry gameEntry, string sourceFolderPath)
+    public async Task<bool> InstallAsync(GameEntry gameEntry, DownloadManifest downloadManifest)
     {
-        var globalInstallDir = SettingsService.Instance.LibraryFolder;
+        await Console.Out.WriteLineAsync($"[INFO] - Requested installation of '{gameEntry.Title}'");
 
-        if (string.IsNullOrWhiteSpace(gameEntry.Slug) || string.IsNullOrWhiteSpace(globalInstallDir))
+        if (!Directory.Exists(downloadManifest.DownloadDirectoryPath))
+        {
+            await Console.Out.WriteLineAsync($"[ERROR] - Cannot install {gameEntry.Title}. Source files not found on: {downloadManifest.DownloadDirectoryPath}");
             return false;
-
-        var (installationType, setupFilePath) = IdentifyGameInstallationType(gameEntry.Slug, sourceFolderPath);
-
-        if (installationType == EGameInstallationType.Unknown)
-            return false;
+        }
         
+        if (!TryIdentifySetupFilePath(gameEntry.Slug, downloadManifest.DownloadDirectoryPath, out var setupFilePath))
+        {
+            await Console.Out.WriteLineAsync($"[ERROR] - Cannot install {gameEntry.Title}. Setup file path could not be identified.");
+            return false;
+        }
+        
+        var installationType = IdentifySetupType(setupFilePath);
+
+        if (installationType == EInstallationType.Unknown)
+        {
+            await Console.Out.WriteLineAsync($"[ERROR] - Cannot install {gameEntry.Title}. Install Type could not be identified from setup file: {setupFilePath}");
+            return false;
+        }
+        
+        var globalInstallDir = SettingsService.Instance.LibraryFolder;
         var targetFolderPath = Path.Combine(globalInstallDir, gameEntry.Slug);
         Directory.CreateDirectory(targetFolderPath);
         
-        // publishing the installation has started:
+        // Publishing the installation has started:
         LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installing);
 
         await Console.Out.WriteLineAsync($"[INFO] - Requested installation of '{gameEntry.Title}'");
-        await Console.Out.WriteLineAsync($"[INFO] - Source folder for installation files: {sourceFolderPath}");
+        await Console.Out.WriteLineAsync($"[INFO] - Source folder for installation files: {downloadManifest.DownloadDirectoryPath}");
         await Console.Out.WriteLineAsync($"[INFO] - Target folder for installation: {targetFolderPath}");
-        await Console.Out.WriteLineAsync($"[INFO] - Identified installation type: {installationType.ToString()}");
         await Console.Out.WriteLineAsync($"[INFO] - Identified setup file: {setupFilePath}");
+        await Console.Out.WriteLineAsync($"[INFO] - Identified installation type: {installationType.ToString()}");
 
         var installedSuccessfully = false;
 
@@ -80,33 +91,33 @@ public class InstallerService
         {
             installedSuccessfully = installationType switch
             {
-                EGameInstallationType.Unknown => false,
-                EGameInstallationType.LinuxNative => await RunLinuxNativeInstallAsync(setupFilePath, targetFolderPath),
-                EGameInstallationType.WindowsInstaller => await RunWindowsInstallAsync(setupFilePath, targetFolderPath),
-                EGameInstallationType.MacOsInstaller => await RunMacOsInstallAsync(setupFilePath, targetFolderPath),
-                _ => throw new ArgumentOutOfRangeException()
+                EInstallationType.LinuxNative => await RunLinuxNativeInstallAsync(setupFilePath, targetFolderPath),
+                EInstallationType.WindowsInstaller => await RunWindowsInstallAsync(setupFilePath, targetFolderPath),
+                EInstallationType.MacOsInstaller => await RunMacOsInstallAsync(setupFilePath, targetFolderPath),
+                _ => false
             };
         });
 
         if (installedSuccessfully)
         {
-            var (executablePath, arguments, workingDir) = FindExecutablePath(targetFolderPath);
+            // Parsing the .info files (if any):
+            if (!TryParseInfoFiles(gameEntry, targetFolderPath, out var primaryTask, out var otherTasksList))
+            {
+                await Console.Out.WriteLineAsync("[ERROR] - Could not define a primary task for the installed game.");
+                return false;
+            }
+         
+            // Creating and saving the installation manifest:
+            var manifest = new InstalledGameManifest
+            {
+                GameId = gameEntry.Id,
+                GameSlug = gameEntry.Slug,
+                InstallDirectoryPath = targetFolderPath,
+                PrimaryTask = primaryTask,
+                OtherTasks = otherTasksList
+            };
 
-            await Console.Out.WriteLineAsync($"[INFO] - Resolved game executable: {executablePath}");
-
-            var runner = IdentifyRunnerType(targetFolderPath, executablePath);
-
-            var manifest = new InstalledGameManifest(
-                GameId: gameEntry.Id,
-                Slug: gameEntry.Slug,
-                InstallDirectoryPath: targetFolderPath,
-                ExecutablePath: executablePath,
-                Arguments: arguments,
-                WorkingDirectory: workingDir,
-                InstallDate: DateTime.UtcNow,
-                RunnerType: runner
-            );
-
+            LaunchConfigurationService.Instance.CreateAndSaveLaunchConfiguration(manifest);
             RegisterInstallation(manifest);
             
             LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installed);
@@ -118,6 +129,191 @@ public class InstallerService
         }
 
         return installedSuccessfully;
+    }
+
+    private static bool TryIdentifySetupFilePath(string gameSlug, string downloadDirectoryPath,  [NotNullWhen(true)] out string? setupFilePath)
+    {
+        var linuxInstallerFile = Directory
+            .EnumerateFiles(downloadDirectoryPath, "*.sh", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") 
+                                 || Path.GetFileName(f).StartsWith("gog_") 
+                                 || Path.GetFileName(f).StartsWith(gameSlug));
+
+        if (!string.IsNullOrWhiteSpace(linuxInstallerFile))
+        {
+            setupFilePath = linuxInstallerFile;
+            return true;
+        }
+        
+        var windowsInstallerFile = Directory
+            .EnumerateFiles(downloadDirectoryPath, "*.exe", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") 
+                                 || Path.GetFileName(f).StartsWith(gameSlug));
+
+        if (!string.IsNullOrWhiteSpace(windowsInstallerFile))
+        {
+            setupFilePath = windowsInstallerFile;
+            return true;
+        }
+        
+        var macOsInstallerFile = Directory
+            .EnumerateFiles(downloadDirectoryPath, "*.dmg", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") 
+                                 || Path.GetFileName(f).StartsWith(gameSlug));
+
+        if (!string.IsNullOrWhiteSpace(macOsInstallerFile))
+        {
+            setupFilePath = macOsInstallerFile;
+            return true;
+        }
+     
+        Console.Out.WriteLine("[ERROR] - Installer file could not be identified.");
+        setupFilePath = null;
+        return false;
+    }
+
+    private static EInstallationType IdentifySetupType(string setupFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(setupFilePath) || !File.Exists(setupFilePath))
+            return EInstallationType.Unknown;
+
+        // Checking the extension of the file:
+        var extension = Path.GetExtension(setupFilePath);
+
+        if (extension.Equals(".sh", StringComparison.OrdinalIgnoreCase))
+            return EInstallationType.LinuxNative;
+        
+        if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            return EInstallationType.WindowsInstaller;
+        
+        if (extension.Equals(".dmg", StringComparison.OrdinalIgnoreCase))
+            return EInstallationType.MacOsInstaller;
+        
+        return EInstallationType.Unknown;
+    }
+    
+    private static bool TryParseInfoFiles(GameEntry gameEntry, string installDirectoryPath,
+        [NotNullWhen(true)] out GogPlayTaskEntry? primaryTask,
+        [NotNullWhen(true)] out List<GogPlayTaskEntry>? otherTasks)
+    {
+        primaryTask = null;
+        otherTasks = null;
+        
+        if (string.IsNullOrWhiteSpace(installDirectoryPath) || !Directory.Exists(installDirectoryPath))
+            return false;
+        
+        var infoFilePath = Directory.GetFiles(installDirectoryPath, "goggame-*.info", SearchOption.TopDirectoryOnly).FirstOrDefault();
+
+        if (!string.IsNullOrWhiteSpace(infoFilePath))
+        {
+            try
+            {
+                var json = File.ReadAllText(infoFilePath);
+                var gameInfo = JsonSerializer.Deserialize<GogGameInfo>(json);
+
+                if (gameInfo is null || gameInfo.PlayTasks.Count == 0)
+                    return false;
+
+                primaryTask = gameInfo.PlayTasks.FirstOrDefault(t => t is { IsPrimary: true }) ?? new GogPlayTaskEntry();
+                otherTasks = gameInfo.PlayTasks.FindAll(t => t is { IsPrimary: false });
+                
+                // Fixing the executable path and the working dir, to have the full path:
+                var fullExecutablePath = Path.Join(installDirectoryPath, primaryTask.Path.Replace("\\", "/"));
+                var fullWorkingDirectoryPath = Path.Join(installDirectoryPath, primaryTask.WorkingDirectory ?? string.Empty);
+
+                primaryTask.Path = fullExecutablePath;
+                primaryTask.WorkingDirectory = fullWorkingDirectoryPath;
+            }
+            catch (Exception e)
+            {
+                Console.Out.WriteLine($"[WARN] - Failed to parse GOG Info file: {e.Message}");
+            }
+        }
+        
+        if (primaryTask is null)
+        {
+            Console.Out.WriteLine("[WARN] - No .info file found after GOG finished installation. Falling back to manual identification of the launcher...");
+            
+            var executablePath = IdentifyGameLauncherFile(installDirectoryPath);
+            
+            Console.Out.WriteLine(string.IsNullOrWhiteSpace(executablePath)
+                ? "[ERROR] - Could not identify the game launcher file..."
+                : $"[INFO] - Identified Launch File: {executablePath}");
+            
+            // We don't have a .info file, we fall back to identifying the runner and executable by ourselves:
+            primaryTask = new GogPlayTaskEntry
+            {
+                Name = $"Run {gameEntry.Title}",
+                IsPrimary = true,
+                Category = "game",
+                IsHidden = false,
+                Path = executablePath,
+                WorkingDirectory = installDirectoryPath
+            };
+        }
+        
+        // Identifying and saving the runner type:
+        var runnerType = IdentifyRunnerType(installDirectoryPath, primaryTask.Path);
+
+        Console.Out.WriteLine(runnerType == ERunnerType.Unknown
+            ? $"[ERROR] - Could not identify the Runner Type for the game launcher: {primaryTask.Path}"
+            : $"[INFO] - Identified Runner Type: {runnerType.ToString()}");
+        
+        primaryTask.RunnerType = runnerType;
+        
+        otherTasks ??= [];
+        return true;
+    }
+    
+    private static string IdentifyGameLauncherFile(string installDirectoryPath)
+    {
+        var fallbackScript = Directory.GetFiles(installDirectoryPath, "*.sh", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(fallbackScript))
+            return fallbackScript;
+        
+        // Fallback to windows executable:
+        var fallbackExe = Directory.GetFiles(installDirectoryPath, "*.exe", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(fallbackExe))
+            return fallbackExe;
+        
+        var fallbackDmg = Directory.GetFiles(installDirectoryPath, "*.dmg", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(fallbackDmg))
+            return fallbackDmg;
+        
+        return string.Empty;
+    }
+    
+    private static ERunnerType IdentifyRunnerType(string installDirectoryPath, string executableFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectoryPath) || string.IsNullOrWhiteSpace(executableFilePath))
+            return ERunnerType.Unknown;
+        
+        // Searching for a DOSBOX folder in the installation directory, or a windows bundled dosbox executable:
+        if (Directory.Exists(Path.Combine(installDirectoryPath, "dosbox")) 
+            || Directory.Exists(Path.Combine(installDirectoryPath, "DOSBOX"))
+            || executableFilePath.Contains("dosbox.exe", StringComparison.OrdinalIgnoreCase))
+            return ERunnerType.DosBox;
+        
+        var scummvmFolderPath = Path.Combine(installDirectoryPath, "scummvm");
+        if (Directory.Exists(scummvmFolderPath) || executableFilePath.Contains("scummvm", StringComparison.OrdinalIgnoreCase))
+            return ERunnerType.ScummVm;
+
+        // If the executable is a .exe file, then we go with Wine:
+        if (executableFilePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || executableFilePath.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
+            return ERunnerType.Wine;
+     
+        if (string.IsNullOrWhiteSpace(executableFilePath) || 
+            !File.Exists(executableFilePath) || 
+            string.IsNullOrWhiteSpace(installDirectoryPath))
+            return ERunnerType.Unknown;
+        
+        return ERunnerType.Native;
     }
 
     public async Task<bool> UninstallAsync(GameEntry gameEntry)
@@ -135,14 +331,14 @@ public class InstallerService
         try
         {
             // Deleting the game directory:
-            if (Directory.Exists(gameManifest.Value.InstallDirectoryPath))
+            if (Directory.Exists(gameManifest.InstallDirectoryPath))
             {
-                await Task.Run(() => Directory.Delete(gameManifest.Value.InstallDirectoryPath, true));
-                await Console.Out.WriteLineAsync($"[INFO] - Removed game files at {gameManifest.Value.InstallDirectoryPath}...");
+                await Task.Run(() => Directory.Delete(gameManifest.InstallDirectoryPath, true));
+                await Console.Out.WriteLineAsync($"[INFO] - Removed game files at {gameManifest.InstallDirectoryPath}...");
             }
             
             // Deleting the JSON manifest from the disk and from the cache:
-            UnregisterInstallation(gameManifest.Value);
+            UnregisterInstallation(gameManifest);
 
             var newGameState = DownloadQueueService.Instance.IsGameDownloaded(gameEntry.Slug)
                 ? EGameState.Downloaded
@@ -161,70 +357,67 @@ public class InstallerService
         }
     }
     
-    private static ERunnerType IdentifyRunnerType(string installedFolderPath, string executablePath)
-    {
-        // Searching for a DOSBOX folder in the installation directory:
-        if (Directory.Exists(Path.Combine(installedFolderPath, "dosbox")) 
-            || Directory.Exists(Path.Combine(installedFolderPath, "DOSBOX"))
-            || executablePath.Contains("dosbox.exe", StringComparison.OrdinalIgnoreCase))
-            return ERunnerType.DosBox;
-        
-        var scummvmFolderPath = Path.Combine(installedFolderPath, "scummvm");
-        if (Directory.Exists(scummvmFolderPath))
-            return ERunnerType.ScummVm;
-
-        // If the executable is a .exe file, then we go with Wine:
-        if (executablePath.EndsWith(".exe") || executablePath.EndsWith(".msi"))
-            return ERunnerType.Wine;
-        
-        return ERunnerType.Native;
-    }
-
     private static async Task<bool> RunLinuxNativeInstallAsync(string setupFilePath, string targetFolderPath)
     {
         var tempExtractPath = Path.Combine(Path.GetTempPath(), $"TreasureChest_Install_{Guid.NewGuid()}");
+
+        if (!RunnerManagerService.IsCommandAvailable("unzip"))
+        {
+            await Console.Out.WriteLineAsync("[ERROR] - 'unzip' is not installed on this system. Cannot proceed.");
+            return false;
+        }
         
         try
         {
             Directory.CreateDirectory(tempExtractPath);
-            
+
             var processStartInfo = new ProcessStartInfo
-            {       
+            {
                 FileName = "unzip",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            
-            processStartInfo.ArgumentList.Add("-q");    // Quiet
-            processStartInfo.ArgumentList.Add("-o");    // Overwrite
+
+            processStartInfo.ArgumentList.Add("-q"); // Quiet
+            processStartInfo.ArgumentList.Add("-o"); // Overwrite
             processStartInfo.ArgumentList.Add(setupFilePath);
             processStartInfo.ArgumentList.Add("-d");
             processStartInfo.ArgumentList.Add(tempExtractPath);
 
             await Console.Out.WriteLineAsync("[INFO] - Unzipping the game data (Bypassing MojoSetup)...");
-            
+
             using var process = Process.Start(processStartInfo);
 
             if (process is null)
                 return false;
-            
+
+            _ = process.StandardOutput.ReadToEndAsync();
+            var stdErrTask = process.StandardError.ReadToEndAsync();
+
             await process.WaitForExitAsync();
 
             if (process.ExitCode != 0 && process.ExitCode != 1)
             {
-                var stderr = await process.StandardError.ReadToEndAsync();
+                var stderr = await stdErrTask;
+
                 Console.WriteLine($"[ERROR] - Linux Native Install exited with code {process.ExitCode}");
-                if (!string.IsNullOrWhiteSpace(stderr)) Console.WriteLine($"[ERROR] - StdErr: {stderr}");
+
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    Console.WriteLine($"[ERROR] - StdErr: {stderr}");
+                }
+
                 return false;
             }
 
-            await Console.Out.WriteLineAsync("[INFO] - Successfully extracted game data. Trying to identify the actual game information...");
+            await Console.Out.WriteLineAsync(
+                "[INFO] - Successfully extracted game data. Trying to identify the actual game information...");
 
             var noarchDirPath = Path.Combine(tempExtractPath, "data", "noarch");
             var gamePayload = Path.Combine(noarchDirPath, "game");
-            
+
             // Modern GOG titles:
             if (Directory.Exists(gamePayload))
             {
@@ -235,21 +428,28 @@ public class InstallerService
                 gamePayload = noarchDirPath;
                 await Console.Out.WriteLineAsync("[INFO] - Detected legacy/DOSBOX GOG payload structure.");
             }
-            else if (Directory.Exists(noarchDirPath) && File.Exists(Path.Combine(noarchDirPath, "start.sh")))
+            else
             {
                 await Console.Out.WriteLineAsync("[ERROR] - Could not identify the game payload directory structure.");
                 return false;
             }
-            
+
             MoveDirectoryContents(gamePayload, targetFolderPath);
             MakeGameBinariesExecutable(targetFolderPath);
-            
+
             return true;
         }
         catch (Exception e)
         {
             Console.WriteLine($"[ERROR] - Linux Native Install failed: {e.Message}");
             return false;
+        }
+        finally
+        {
+            if (Directory.Exists(tempExtractPath))
+            {
+                Directory.Delete(tempExtractPath, true);    
+            }
         }
     }
     
@@ -301,12 +501,15 @@ public class InstallerService
                 await Console.Out.WriteLineAsync("[ERROR] - Failed to run InnoExtract...");
                 return false;
             }
+            
+            _ = process.StandardOutput.ReadToEndAsync();
+            var stdErrTask = process.StandardError.ReadToEndAsync();
 
             await process.WaitForExitAsync();
 
             if (process.ExitCode != 0)
             {
-                var stderr = await process.StandardError.ReadToEndAsync();
+                var stderr = await stdErrTask;
                 Console.WriteLine($"[ERROR] - Windows installer extraction exited with code {process.ExitCode}");
                 
                 if (!string.IsNullOrWhiteSpace(stderr))
@@ -332,7 +535,8 @@ public class InstallerService
     
     private static async Task<bool> RunMacOsInstallAsync(string setupFilePath, string targetFolderPath)
     {
-        return false;
+        // TODO: Handle macOS install?
+        throw new NotImplementedException("[ERROR] - MacOS installation is not implemented.");
     }
 
     private static void MoveDirectoryContents(string sourceDir, string targetDir)
@@ -340,13 +544,7 @@ public class InstallerService
         foreach (var file in Directory.GetFiles(sourceDir))
         {
             var dest = Path.Combine(targetDir, Path.GetFileName(file));
-
-            if (File.Exists(dest))
-            {
-                File.Delete(dest);
-            }
-            
-            File.Move(file, dest);
+            File.Move(file, dest, true);
         }
 
         foreach (var directory in Directory.GetDirectories(sourceDir))
@@ -366,42 +564,44 @@ public class InstallerService
 
         foreach (var executable in allExecutables)
         {
-            File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | 
-                                             UnixFileMode.GroupRead | UnixFileMode.GroupExecute | 
-                                             UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            try
+            {
+                File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | 
+                                                 UnixFileMode.GroupRead | UnixFileMode.GroupExecute | 
+                                                 UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
+            catch (Exception)
+            {
+                // ignored
+            }
         }
     }
 
     public bool TryGetInstallManifest(string gameSlug, [NotNullWhen(true)] out InstalledGameManifest? installManifest)
     {
-        if (string.IsNullOrWhiteSpace(gameSlug))
-        {
-            installManifest = null;
-            return false;
-        }
-        
-        if (_manifestCache.TryGetValue(gameSlug, out var foundManifest))
-        {
-            installManifest = foundManifest;
-            return true;
-        }
-
         installManifest = null;
-        return false;
+        
+        if (string.IsNullOrWhiteSpace(gameSlug))
+            return false;
+
+        if (!_manifestCache.TryGetValue(gameSlug, out var foundManifest)) 
+            return false;
+        
+        installManifest = foundManifest;
+        return true;
     }
 
     private void RegisterInstallation(InstalledGameManifest manifest)
     {
-        var manifestPath = Path.Combine(ManifestsDirectory, $"{manifest.Slug}.json");
+        var manifestPath = Path.Combine(ManifestsDirectory, $"{manifest.GameSlug}.json");
         var json = JsonSerializer.Serialize(manifest, _serializerOptions);
         File.WriteAllText(manifestPath, json);
-        
-        _manifestCache[manifest.Slug] = manifest;
+        _manifestCache[manifest.GameSlug] = manifest;
     }
     
     private void UnregisterInstallation(InstalledGameManifest manifest)
     {
-        var manifestPath = Path.Combine(ManifestsDirectory, $"{manifest.Slug}.json");
+        var manifestPath = Path.Combine(ManifestsDirectory, $"{manifest.GameSlug}.json");
 
         if (File.Exists(manifestPath))
         {
@@ -409,77 +609,9 @@ public class InstallerService
             Console.Out.WriteLine($"[INFO] - Removed manifest file at {manifestPath}...");
         }
         
-        _manifestCache.Remove(manifest.Slug);
+        _manifestCache.Remove(manifest.GameSlug);
     }
-
-    public static (EGameInstallationType installationType, string setupFilePath) IdentifyGameInstallationType(string gameSlug, string sourceFolderPath)
-    {
-        if (!Directory.Exists(sourceFolderPath))
-            return (EGameInstallationType.Unknown, string.Empty);
-        
-        // Checking for linux first:
-        var linuxInstaller = Directory
-            .EnumerateFiles(sourceFolderPath, "*.sh")
-            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith("gog_") || Path.GetFileName(f).StartsWith(gameSlug));
-
-        if (!string.IsNullOrWhiteSpace(linuxInstaller))
-            return (EGameInstallationType.LinuxNative, linuxInstaller);
-        
-        // If not found, falling back to windows installs:
-        var windowsInstaller = Directory
-            .EnumerateFiles(sourceFolderPath, "*.exe")
-            .FirstOrDefault(f => Path.GetFileName(f).StartsWith("setup_") || Path.GetFileName(f).StartsWith(gameSlug));
-
-        if (!string.IsNullOrWhiteSpace(windowsInstaller))
-            return (EGameInstallationType.WindowsInstaller, windowsInstaller);
-        
-        //TODO: Handle MacOS!
-        return (EGameInstallationType.Unknown, string.Empty);
-    }
-
-    private (string ExecutablePath, string? Arguments, string? WorkingDir) FindExecutablePath(string targetFolderPath)
-    {
-        var infoFiles = Directory.GetFiles(targetFolderPath, "goggame-*.info");
-
-        if (infoFiles.Length != 0)
-        {
-            try
-            {
-                var json = File.ReadAllText(infoFiles[0]);
-                var gameInfo = JsonSerializer.Deserialize<GogGameInfo>(json, _serializerOptions);
-
-                var primaryTask = gameInfo?.PlayTasks.FirstOrDefault(t => t is { IsPrimary: true, Category: "game" });
-
-                if (primaryTask is not null && !string.IsNullOrWhiteSpace(primaryTask.Path))
-                {
-                    var executablePath = Path.Combine(targetFolderPath, primaryTask.Path.Replace(".EXE", ".exe"));  // Jesus GOG... 
-                    var arguments = primaryTask.Arguments;
-                    var workingDir = Path.Join(targetFolderPath, primaryTask.WorkingDir);
-                    return (executablePath, arguments, workingDir);
-                }
-            }
-            catch (Exception e)
-            {
-                Console.Out.WriteLine($"[WARN] - Failed to parse GOG Info file: {e.Message}");
-            }
-        }
-        
-        var fallbackScript = Directory.GetFiles(targetFolderPath, "*.sh")
-            .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
-
-        if (fallbackScript is not null)
-            return (fallbackScript, null, null);
-        
-        // Fallback to windows executable:
-        var fallbackExe = Directory.GetFiles(targetFolderPath, "*.exe")
-            .FirstOrDefault(f => !Path.GetFileName(f).Contains("uninstall", StringComparison.OrdinalIgnoreCase));
-
-        if (fallbackExe is not null)
-            return (fallbackExe, null, null);
-        
-        return (string.Empty, null, null);
-    }
-
+    
     private static void MoveSupportFiles(string installFolder)
     {
         var supportFolderPath = Path.Combine(installFolder, "__support", "app");
@@ -509,21 +641,21 @@ public class InstallerService
             dosBoxFolder = Path.Combine(installFolder, "dosbox");
         }
 
-        if (string.IsNullOrWhiteSpace(dosBoxFolder))
-            return;
-        
-        var dosboxConfigs = Directory.GetFiles(supportFolderPath, "*.conf")
-            .Where(f => Path.GetFileName(f).StartsWith("dosbox", StringComparison.InvariantCultureIgnoreCase))
-            .ToList();
-
-        foreach (var dosboxConfigFile in dosboxConfigs)
+        if (!string.IsNullOrWhiteSpace(dosBoxFolder))
         {
-            var targetPath = Path.Combine(dosBoxFolder, Path.GetFileName(dosboxConfigFile));
+            var dosboxConfigs = Directory.GetFiles(supportFolderPath, "*.conf")
+                .Where(f => Path.GetFileName(f).StartsWith("dosbox", StringComparison.InvariantCultureIgnoreCase))
+                .ToList();
+
+            foreach (var dosboxConfigFile in dosboxConfigs)
+            {
+                var targetPath = Path.Combine(dosBoxFolder, Path.GetFileName(dosboxConfigFile));
             
-            if (File.Exists(targetPath))
-                continue;
+                if (File.Exists(targetPath))
+                    continue;
             
-            File.Move(dosboxConfigFile, targetPath);
+                File.Move(dosboxConfigFile, targetPath);
+            }
         }
         
         // Finally, moving any remaining file to the root folder:

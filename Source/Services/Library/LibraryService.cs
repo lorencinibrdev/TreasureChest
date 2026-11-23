@@ -144,7 +144,7 @@ public class LibraryService
         return _gameStates.GetValueOrDefault(gameId, EGameState.Available);
     }
 
-    public void RefreshGameState(long gameId)
+    private void RefreshGameState(long gameId)
     {
         if (!_gameEntries.TryGetValue(gameId, out var gameEntry))
             return;

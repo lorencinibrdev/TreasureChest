@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using System.Xml.Linq;
 using TreasureChest.Source.Helpers;
-using TreasureChest.Source.Services.Install;
+using TreasureChest.Source.Services.Library;
 
 namespace TreasureChest.Source.Services.Downloads;
 
@@ -11,16 +13,63 @@ public class DownloadQueueService
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _semaphoreSlim = new(2, 2);
     private readonly ConcurrentBag<DownloadTask> _allTasks = [];
+    private readonly ConcurrentDictionary<string, DownloadManifest> _downloadedCache = [];
+    private readonly JsonSerializerOptions _serializerOptions;
+    private readonly Lock _manifestWriteLock = new();
+    private const string ManifestFileName = "download_manifest.json";
+    private const int AllocationSizeInBytes = 81920;
 
     private DownloadQueueService()
     {
+        _serializerOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true
+        };
+        
         _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromHours(2)
         };
+        
+        // Loading the already downloaded entries in the disk:
+        var downloadsDir = SettingsService.Instance.DownloadsFolder;
+
+        if (!Directory.Exists(downloadsDir))
+            return;
+
+        var manifestFiles = Directory.EnumerateFiles(downloadsDir, ManifestFileName, SearchOption.AllDirectories);
+
+        foreach (var manifestFilePath in manifestFiles)
+        {
+            try
+            {
+                var manifest = JsonSerializer.Deserialize<DownloadManifest>(File.ReadAllText(manifestFilePath));
+
+                if (manifest?.Files is null) 
+                    continue;
+                
+                var gameDir = Path.GetDirectoryName(manifestFilePath);
+
+                if (string.IsNullOrWhiteSpace(gameDir))
+                    continue;
+                
+                var isComplete = manifest.Files.All(f => File.Exists(Path.Combine(gameDir, f.Name)));
+
+                if (isComplete)
+                {
+                    _downloadedCache[manifest.GameSlug] = manifest;
+                }
+            }
+            catch (Exception)
+            {
+                // ignored
+            }
+        }
+        
+        Console.WriteLine($"[INFO] - Pre-loaded {_downloadedCache.Count} downloaded games into cache.");
     }
 
-    public async Task<DownloadTask> EnqueueDownload(long gameId, string title, string slug, string url, string targetFileName)
+    public async Task<DownloadTask> EnqueueDownload(long gameId, string title, string slug, ESystemPlatform platform, string? language, string url, string targetFileName)
     {
         var targetDir = Path.Join(SettingsService.Instance.DownloadsFolder, slug);
 
@@ -32,10 +81,13 @@ public class DownloadQueueService
         var task = new DownloadTask
         {
             GameId = gameId,
+            GameSlug = slug,
             Title = title,
             DownloadUrl = url,
             TargetFileName = targetFileName,
-            DestinationFolderPath = targetDir
+            DestinationFolderPath = targetDir,
+            Platform = platform,
+            Language = language
         };
         
         // Trying to fetch the md5 for later verification:
@@ -84,30 +136,36 @@ public class DownloadQueueService
                     FileMode.Create,
                     FileAccess.Write,
                     FileShare.None,
-                    bufferSize: 81920,
+                    bufferSize: AllocationSizeInBytes,
                     useAsync: true);
 
-                var buffer = new byte[81920];
-                int bytesRead;
                 var lastReportTime = DateTime.UtcNow;
                 long lastReportBytes = 0;
+                var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(AllocationSizeInBytes);
 
-                while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), task.Cts.Token)) >
-                       0)
+                try
                 {
-                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), task.Cts.Token);
-                    task.TotalBytesDownloaded += bytesRead;
+                    int bytesRead;
+                    while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), task.Cts.Token)) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), task.Cts.Token);
+                        task.TotalBytesDownloaded += bytesRead;
 
-                    var now = DateTime.UtcNow;
-                    var timeDiff = (now - lastReportTime).TotalSeconds;
+                        var now = DateTime.UtcNow;
+                        var timeDiff = (now - lastReportTime).TotalSeconds;
 
-                    if (!(timeDiff >= 0.25))
-                        continue;
+                        if (!(timeDiff >= 0.25))
+                            continue;
 
-                    task.SpeedBytesPerSecond = (task.TotalBytesDownloaded - lastReportBytes) / timeDiff;
-                    lastReportTime = now;
-                    lastReportBytes = task.TotalBytesDownloaded;
-                    NotifyUi(() => TaskUpdated?.Invoke(task));
+                        task.SpeedBytesPerSecond = (task.TotalBytesDownloaded - lastReportBytes) / timeDiff;
+                        lastReportTime = now;
+                        lastReportBytes = task.TotalBytesDownloaded;
+                        NotifyUi(() => TaskUpdated?.Invoke(task));
+                    }
+                }
+                catch (Exception)
+                {
+                    System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
                 }
             }   // File stream release
 
@@ -129,14 +187,13 @@ public class DownloadQueueService
                 }
             }
 
-            if (File.Exists(task.FinalFilePath))
-            {
-                File.Delete(task.FinalFilePath);
-            }
-
-            File.Move(task.PartialFilePath, task.FinalFilePath);
+            File.Move(task.PartialFilePath, task.FinalFilePath, true);
 
             task.Status = EDownloadStatus.Completed;
+            
+            // Writing the JSON manifest file in the downloaded folder, for later checking:
+            CreateOrUpdateDownloadManifest(task);
+            
             NotifyUi(() =>
             {
                 TaskUpdated?.Invoke(task);
@@ -163,11 +220,78 @@ public class DownloadQueueService
         }
     }
 
+    public bool TryGetDownloadManifest(string gameSlug, [NotNullWhen(true)] out DownloadManifest? downloadManifest)
+    {
+        if (_downloadedCache.TryGetValue(gameSlug, out var actualValue))
+        {
+            downloadManifest = actualValue;
+            return true;
+        }
+
+        downloadManifest = null;
+        return false;
+    }
+
     public bool IsGameDownloaded(string gameSlug)
     {
-        var sourceDir = Path.Join(SettingsService.Instance.DownloadsFolder, gameSlug);
-        var (type, _) = InstallerService.IdentifyGameInstallationType(gameSlug, sourceDir);
-        return type != EGameInstallationType.Unknown;
+        // Cache First:
+        if (!_downloadedCache.TryGetValue(gameSlug, out _))
+            return false;
+        
+        var downloadedFolder = Path.Join(SettingsService.Instance.DownloadsFolder, gameSlug);
+        var manifestFilePath = Path.Join(downloadedFolder, ManifestFileName);
+
+        if (!File.Exists(manifestFilePath))
+            return false;
+
+        try
+        {
+            var manifest = JsonSerializer.Deserialize<DownloadManifest>(File.ReadAllText(manifestFilePath));
+
+            return manifest?.Files is not null &&
+                   manifest.Files.All(f => File.Exists(Path.Combine(downloadedFolder, f.Name)));
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    public void ClearDownloadedFiles(GameEntry gameEntry)
+    {
+        var gameId = gameEntry.Id;
+        var gameSlug = gameEntry.Slug;
+        
+        if (!TryGetDownloadManifest(gameSlug, out var downloadManifest))
+        {
+            Console.Out.WriteLine($"[WARN] - Could not find the download manifest for {gameSlug}");
+            return;
+        }
+        
+        Console.Out.WriteLine($"[INFO] - Cleaning up Downloaded data on path: {downloadManifest.DownloadDirectoryPath}");
+
+        if (!Directory.Exists(downloadManifest.DownloadDirectoryPath))
+        {
+            Console.Out.WriteLine($"[WARN] - Could not find the downloaded data folder: {downloadManifest.DownloadDirectoryPath}");
+            _downloadedCache.TryRemove(gameSlug, out _);
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(downloadManifest.DownloadDirectoryPath, true);
+            Console.Out.WriteLine($"[INFO] - Done cleaning data for {gameSlug}");
+        }
+        catch (Exception e)
+        {
+            Console.Out.WriteLine($"[WARN] - Failed to recursively remove the download folder: {downloadManifest.DownloadDirectoryPath}");
+            Console.Out.WriteLine($"[WARN] - {e.Message}");
+        }
+        finally
+        {
+            _downloadedCache.TryRemove(gameSlug, out _);
+            LibraryService.Instance.SetGameState(gameId, EGameState.Available);
+        }
     }
 
     private static void NotifyUi(Action action)
@@ -237,11 +361,57 @@ public class DownloadQueueService
             return null;
         }
     }
+
+    private void CreateOrUpdateDownloadManifest(DownloadTask downloadTask)
+    {
+        var manifestPath = Path.Combine(downloadTask.DestinationFolderPath, ManifestFileName);
+
+        lock (_manifestWriteLock)
+        {
+            DownloadManifest? jsonData = null; 
+        
+            if (File.Exists(manifestPath))
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(manifestPath);
+                    jsonData = JsonSerializer.Deserialize<DownloadManifest>(jsonContent);
+                }
+                catch (Exception e)
+                {
+                    Console.Out.WriteLine($"[WARNING] - Failed to parse download manifest file: {e.Message}]");
+                    File.Delete(manifestPath);
+                }
+            }
+
+            jsonData ??= new DownloadManifest
+            {
+                GameId = downloadTask.GameId,
+                GameSlug = downloadTask.GameSlug,
+                Platform = downloadTask.Platform,
+                DownloadDirectoryPath = downloadTask.DestinationFolderPath,
+                Language = downloadTask.Language ?? string.Empty,
+            };
+
+            var downloadedFileInfo = new DownloadedFile(
+                Name: downloadTask.TargetFileName,
+                Size: downloadTask.TotalBytes,
+                Md5Hash: downloadTask.Md5Sum ?? string.Empty
+            );
+        
+            jsonData.Files.Add(downloadedFileInfo);
+            _downloadedCache[downloadTask.GameSlug] = jsonData;
+        
+            // Writing back to the file:
+            var jsonText = JsonSerializer.Serialize(jsonData, _serializerOptions);
+            File.WriteAllText(manifestPath, jsonText);
+        }
+    }
     
     // Properties:
     public static DownloadQueueService Instance { get; } = new();
     public IReadOnlyList<DownloadTask> AllTasks => [.. _allTasks];
-    
+
     // The events that can be registered to:
     public event Action<DownloadTask>? TaskAdded;
     public event Action<DownloadTask>? TaskUpdated;
