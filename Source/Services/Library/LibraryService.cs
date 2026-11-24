@@ -5,6 +5,7 @@ using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Helpers.GOG.Responses;
 using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.Install;
+using TreasureChest.Source.Services.Library.Records;
 
 namespace TreasureChest.Source.Services.Library;
 
@@ -12,6 +13,7 @@ public class LibraryService
 {
     // Private Members:
     private readonly Dictionary<long, GameEntry> _gameEntries = [];
+    private readonly Dictionary<long, GamePlayStats> _gamePlayStats = [];
     private readonly ConcurrentDictionary<long, EGameState> _gameStates = [];
     private readonly Dictionary<long, GogResponseGameDetails> _gameDetailsRawResponses = [];
     private readonly JsonSerializerOptions _serializerOptions;
@@ -26,6 +28,8 @@ public class LibraryService
         
         DownloadQueueService.Instance.TaskAdded += HandleDownloadStateChanged;
         DownloadQueueService.Instance.TaskCompleted += HandleDownloadStateChanged;
+
+        _ = LoadPlayStatsAsync();
     }
 
     public void AddGames(List<GogResponseGameDetails> gameResponseList)
@@ -37,15 +41,20 @@ public class LibraryService
                 continue;
             
             _gameDetailsRawResponses[gameResponse.Id.Value] = gameResponse;
+
+            var playStats = GetGamePlayStats(gameResponse.Id.Value);
             
             // Loading the actual game object:
-            var gameEntry = GameEntry.TryCreate(gameResponse);
+            var gameEntry = GameEntry.TryCreate(gameResponse, playStats);
             
             if (gameEntry is null)
                 continue;
             
             _gameEntries[gameEntry.Id] = gameEntry;
+            _gamePlayStats[gameEntry.Id] = gameEntry.PlayStats;
         }
+
+        _ = SavePlayStatsAsync();
     }
 
     public IReadOnlyList<GameEntry> GetLoadedGames()
@@ -113,6 +122,60 @@ public class LibraryService
         }
     }
 
+    public async Task LoadPlayStatsAsync()
+    {
+        if (!File.Exists(PlayStatsFilePath))
+            return;
+
+        await _fileLock.WaitAsync();
+
+        try
+        {
+            await using var fileStream = File.OpenRead(PlayStatsFilePath);
+            var loadedStats = await JsonSerializer.DeserializeAsync<Dictionary<long, GamePlayStats>>(fileStream);
+
+            if (loadedStats is null)
+                return;
+
+            _gamePlayStats.Clear();
+
+            foreach (var (gameId, gamePlayStats) in loadedStats)
+            {
+                _gamePlayStats[gameId] = gamePlayStats;
+            }
+        }
+        catch (Exception e)
+        {
+            await Console.Out.WriteLineAsync($"[WARN] - Could not parse the play stats file: '{PlayStatsFilePath}'.");
+            await Console.Out.WriteLineAsync(e.Message);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public async Task SavePlayStatsAsync()
+    {
+        await _fileLock.WaitAsync();
+
+        try
+        {
+            var tempPath = $"{PlayStatsFilePath}.tmp";
+
+            await using (var createStream = File.Create(tempPath))
+            {
+                await JsonSerializer.SerializeAsync(createStream, _gamePlayStats, _serializerOptions);
+            }
+
+            File.Move(tempPath, PlayStatsFilePath, true);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
     public async Task InitializeGameStatesFromDiskAsync()
     {
         await Console.Out.WriteLineAsync("[INFO] - Initializing the game states from the disk...");
@@ -142,6 +205,33 @@ public class LibraryService
     public EGameState GetGameState(long gameId)
     {
         return _gameStates.GetValueOrDefault(gameId, EGameState.Available);
+    }
+    
+    public GamePlayStats GetGamePlayStats(long gameId)
+    {
+        return _gamePlayStats.GetValueOrDefault(gameId, new GamePlayStats(TimeSpan.Zero, null));
+    }
+
+    public async Task RecordPlaySessionAsync(long gameId, TimeSpan sessionDuration, DateTimeOffset lastPlayed)
+    {
+        // Ignoring small play times (maybe game crashed)
+        if (sessionDuration.TotalSeconds < 10)
+            return;
+
+        if (!TryGetGameEntry(gameId, out var gameEntry))
+            return;
+
+        var current = GetGamePlayStats(gameId);
+        var updated = new GamePlayStats(
+            current.TimePlayed + sessionDuration,
+            lastPlayed
+        );
+        
+        _gamePlayStats[gameId] = updated;
+        gameEntry.PlayStats = updated;
+        
+        GamePlayStatsChanged?.Invoke(gameId, updated);
+        await SavePlayStatsAsync();
     }
 
     private void RefreshGameState(long gameId)
@@ -182,7 +272,9 @@ public class LibraryService
     public static LibraryService Instance { get; } = new();
     public int GamesCount => _gameEntries.Count;
     private static string LibraryFilePath => Path.Combine(SettingsService.DataDirectory, $"user_library_{SettingsService.Instance.SavedUserId}.json");
+    private static string PlayStatsFilePath => Path.Combine(SettingsService.DataDirectory, $"user_playstats_{SettingsService.Instance.SavedUserId}.json");
     
     // Events for the library handling:
     public event Action<long, EGameState>? GameStateChanged;
+    public event Action<long, GamePlayStats>? GamePlayStatsChanged;
 }

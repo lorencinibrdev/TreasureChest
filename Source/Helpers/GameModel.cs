@@ -27,6 +27,8 @@ public partial class GameModel
         model.LogoPath = game.ImageLinks.Logo2X;
         model.IconPath = game.ImageLinks.SidebarIcon2X;
         model.SystemCompatibility = game.PlatformCompatibility;
+        model.TimePlayed = game.PlayStats.TimePlayed;
+        model.LastPlayedDate = game.PlayStats.LastPlayedDate;
         return model;
     }
     
@@ -37,4 +39,6 @@ public partial class GameModel
     public string LogoPath { get; private set; } = string.Empty;
     public string IconPath { get; private set; } = string.Empty;
     public SystemCompatibility SystemCompatibility { get; private set; }
+    public TimeSpan TimePlayed { get; set; } = TimeSpan.Zero;
+    public DateTimeOffset? LastPlayedDate { get; set; }
 }

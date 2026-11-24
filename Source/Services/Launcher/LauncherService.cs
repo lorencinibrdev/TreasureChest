@@ -18,7 +18,7 @@ public class LauncherService
     {
         if (!LaunchConfigurationService.Instance.TryGetPrimaryTaskConfig(gameEntry.Slug, out var launchConfiguration))
         {
-            await Console.Out.WriteLineAsync($"[ERROR] - Failed to fetch the Primary Task for the requested game: {gameEntry.Slug}");
+            await Console.Out.WriteLineAsync($"[ERROR] - Failed to fetch the Primary Task for the requested game: {gameEntry.Slug}", cancellationToken);
             return -1;
         }
         
@@ -34,9 +34,12 @@ public class LauncherService
 
         if (launchTask is null)
         {
-            await Console.Out.WriteLineAsync($"[ERROR] - Failed to generate the Launch Task for the game: {gameEntry.Slug}");
+            await Console.Out.WriteLineAsync($"[ERROR] - Failed to generate the Launch Task for the game: {gameEntry.Slug}", cancellationToken);
             return -1;
         }
+        
+        var startedAt = DateTimeOffset.UtcNow;
+        var stopWatch = Stopwatch.StartNew();
 
         LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Running);
 
@@ -63,7 +66,7 @@ public class LauncherService
         {
             if (!process.Start())
             {
-                await Console.Out.WriteLineAsync($"[ERROR] - Failed to launch {launchTask.ProcessStartInfo.FileName}");
+                await Console.Out.WriteLineAsync($"[ERROR] - Failed to launch {launchTask.ProcessStartInfo.FileName}", cancellationToken);
                 return process.ExitCode;
             }
 
@@ -74,13 +77,15 @@ public class LauncherService
         }
         catch (Exception e)
         {
-            await Console.Out.WriteLineAsync($"[ERROR] - Failed to launch game: {e.Message}");
+            await Console.Out.WriteLineAsync($"[ERROR] - Failed to launch game: {e.Message}", cancellationToken);
             process.Kill(entireProcessTree: true);
             return -1;
         }
         finally
         {
-            LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installed);    
+            stopWatch.Stop();
+            LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installed);
+            _ = LibraryService.Instance.RecordPlaySessionAsync(gameEntry.Id, stopWatch.Elapsed, startedAt);
         }
         
         return process.ExitCode;

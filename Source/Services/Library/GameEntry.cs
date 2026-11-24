@@ -1,4 +1,5 @@
 using TreasureChest.Source.Helpers.GOG.Responses;
+using TreasureChest.Source.Services.Library.Records;
 
 namespace TreasureChest.Source.Services.Library;
 
@@ -47,7 +48,7 @@ public class GameEntry
         );
     }
 
-    public static GameEntry? TryCreate(GogResponseGameDetails? gameDetailsResponse)
+    public static GameEntry? TryCreate(GogResponseGameDetails? gameDetailsResponse, GamePlayStats? playStats)
     {
         if (gameDetailsResponse is null)
             return null;
@@ -73,7 +74,10 @@ public class GameEntry
             gameDetailsResponse.IsInstallable ?? false,
             gameDetailsResponse.GameType,
             gameDetailsResponse.Images,
-            gameDetailsResponse.DlcInformation);
+            gameDetailsResponse.DlcInformation)
+        {
+            PlayStats = playStats ?? new GamePlayStats(TimeSpan.Zero, null)
+        };
     }
     
     // Properties:
@@ -86,4 +90,5 @@ public class GameEntry
     public ImageLinks ImageLinks { get; }
     public bool IsInstallable { get; }
     public bool HasDlc { get; }
+    public required GamePlayStats PlayStats { get; set; }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Adw;
 using Gtk;
@@ -8,6 +9,7 @@ using TreasureChest.Source.Services.GOG;
 using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
+using TreasureChest.Source.Services.Library.Records;
 using TreasureChest.Source.Views.Library;
 
 namespace TreasureChest.Source.Views;
@@ -29,6 +31,11 @@ public partial class GameDetailsView : IView
     // Download Fields:
     private ProgressBar? _downloadProgressBar;
     private Label? _downloadStatusLabel;
+    
+    // The PlayStats for the game:
+    private readonly Label _timePlayedLabel;
+    private readonly Label _lastPlayedLabel;
+    private readonly Box _lastPlayedBox;
 
     public GameDetailsView(MainWindow parentWindow, GameEntry game)
     {
@@ -159,6 +166,44 @@ public partial class GameDetailsView : IView
         backButton.OnClicked += (_, _) => _parentWindow.NavigateBackToLibrary();
         headerBar.PackStart(backButton);
         
+        // The stats for the game:
+        var statsBox = Box.New(Orientation.Horizontal, 16);
+        statsBox.Valign = Align.Center;
+        statsBox.MarginStart = 8;
+        
+        // Time Played:
+        var timePlayedBox = Box.New(Orientation.Horizontal, 6);
+        var clockIcon = Image.NewFromIconName("preferences-system-time-symbolic");
+        clockIcon.PixelSize = 16;
+        clockIcon.AddCssClass("dim-label");
+        
+        _timePlayedLabel = Label.New(FormatPlayTime(_game.PlayStats.TimePlayed));
+        _timePlayedLabel.AddCssClass("caption-heading");
+        _timePlayedLabel.AddCssClass("dim-label");
+        _timePlayedLabel.AddCssClass("numeric");
+        
+        timePlayedBox.Append(clockIcon);
+        timePlayedBox.Append(_timePlayedLabel);
+        
+        // Last Played:
+        _lastPlayedBox = Box.New(Orientation.Horizontal, 6);
+        var calendarIcon = Image.NewFromIconName("x-office-calendar-symbolic");
+        calendarIcon.PixelSize = 16;
+        calendarIcon.AddCssClass("dim-label");
+        
+        _lastPlayedLabel = Label.New(FormatLastPlayedDate(_game.PlayStats.LastPlayedDate));
+        _lastPlayedLabel.AddCssClass("caption-heading");
+        _lastPlayedLabel.AddCssClass("dim-label");
+        _lastPlayedLabel.AddCssClass("numeric");
+        
+        _lastPlayedBox.Append(calendarIcon);
+        _lastPlayedBox.Append(_lastPlayedLabel);
+        
+        statsBox.Append(timePlayedBox);
+        statsBox.Append(_lastPlayedBox);
+
+        _lastPlayedBox.Visible = _game.PlayStats.LastPlayedDate is not null;
+        
         _rootOverlay.AddOverlay(headerBar);
         _ = FetchGameDescriptionAsync();
         _ = FetchGameContentAsync();
@@ -171,13 +216,16 @@ public partial class GameDetailsView : IView
         UpdateMainButtonStack();
         
         controlsBox.Append(_mainButtonStack);
+        controlsBox.Append(statsBox);
             
         LibraryService.Instance.GameStateChanged += HandleGameStateChanged;
+        LibraryService.Instance.GamePlayStatsChanged += HandleGamePlayStatsChanged;
         DownloadQueueService.Instance.TaskUpdated += HandleDownloadProgressUpdate;
         
         RootWidget.OnUnrealize += (_, _) =>
         {
             LibraryService.Instance.GameStateChanged -= HandleGameStateChanged;
+            LibraryService.Instance.GamePlayStatsChanged -= HandleGamePlayStatsChanged;
             DownloadQueueService.Instance.TaskUpdated -= HandleDownloadProgressUpdate;
 
             if (_installProgressPulseTimeoutId == 0) 
@@ -186,6 +234,49 @@ public partial class GameDetailsView : IView
             GLib.Functions.SourceRemove(_installProgressPulseTimeoutId);
             _installProgressPulseTimeoutId = 0;
         };
+    }
+
+    private void HandleGamePlayStatsChanged(long gameId, GamePlayStats gamePlayStats)
+    {
+        if (_game.Id != gameId)
+            return;
+        
+        GLib.Functions.IdleAdd(0, () =>
+        {
+            _timePlayedLabel.SetText(FormatPlayTime(gamePlayStats.TimePlayed));
+            _lastPlayedLabel.SetText(FormatLastPlayedDate(gamePlayStats.LastPlayedDate));
+            _lastPlayedBox.Visible = gamePlayStats.LastPlayedDate is not null;
+            return false;
+        });
+    }
+
+    private static string FormatPlayTime(TimeSpan playTime)
+    {
+        if (playTime.TotalMinutes < 1)
+            return "Never Played";
+
+        if (Math.Abs(playTime.TotalMinutes - 1f) <= 1)
+            return $"{(int)playTime.TotalMinutes} minute";
+        
+        return playTime.TotalHours < 1
+            ? $"{(int)playTime.TotalMinutes} minutes"
+            : $"{(int)playTime.TotalHours:F1} hours";
+    }
+    
+    private static string FormatLastPlayedDate(DateTimeOffset? lastPlayedDate)
+    {
+        if (lastPlayedDate is null)
+            return "Never";
+
+        var localDate = lastPlayedDate.Value.ToLocalTime().Date;
+        var today = DateTimeOffset.Now.Date;
+
+        if (localDate == today)
+            return "Today";
+
+        return localDate == today.AddDays(-1)
+            ? "Yesterday"
+            : localDate.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
     }
 
     private void HandleDownloadProgressUpdate(DownloadTask downloadTask)
