@@ -316,13 +316,13 @@ public class InstallerService
         return ERunnerType.Native;
     }
 
-    public async Task<bool> UninstallAsync(GameEntry gameEntry)
+    public async Task UninstallAsync(GameEntry gameEntry)
     {
         if (!TryGetInstallManifest(gameEntry.Slug, out var gameManifest))
         {
             await Console.Out.WriteLineAsync($"[WARN] - Requested to uninstall {gameEntry.Slug}, but manifest is not present for it.");
             LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Available);
-            return true;
+            return;
         }
         
         LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Uninstalling);
@@ -347,13 +347,11 @@ public class InstallerService
             LibraryService.Instance.SetGameState(gameEntry.Id, newGameState);
             
             await Console.Out.WriteLineAsync($"[INFO] - Uninstallation completed. New game state: {newGameState}...");
-            return true;
         }
         catch (Exception e)
         {
             Console.WriteLine($"[ERROR] - Failed to uninstall {gameEntry.Title}: {e.Message}");
             LibraryService.Instance.SetGameState(gameEntry.Id, EGameState.Installed);
-            return false;
         }
     }
     

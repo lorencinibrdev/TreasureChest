@@ -11,7 +11,6 @@ namespace TreasureChest.Source.Views.Library;
 public class LibraryView : IView
 {
     // Private Members:
-    private readonly MainWindow _parentWindow;
     private readonly Gio.ListStore _store;
     private readonly Stack _mainStack;
     private readonly Stack _viewTypeStack;
@@ -25,7 +24,7 @@ public class LibraryView : IView
 
     public LibraryView(MainWindow parentWindow)
     {
-        _parentWindow = parentWindow;
+        ParentWindow = parentWindow;
         _store = Gio.ListStore.New(GameModel.GetGType());
 
         _filter = CustomFilter.New(item =>
@@ -116,7 +115,7 @@ public class LibraryView : IView
         if (!LibraryService.Instance.TryGetGameEntry(game.Id, out var gameEntry))
             return;
         
-        _parentWindow.ShowGameDetails(gameEntry);
+        ParentWindow.ShowGameDetails(gameEntry);
     }
 
     public Widget CreateViewChangeButton()
@@ -351,5 +350,6 @@ public class LibraryView : IView
     
     // Properties:
     public string Identifier => "LibraryView";
+    public MainWindow ParentWindow { get; }
     public Widget RootWidget => _mainStack;
 }

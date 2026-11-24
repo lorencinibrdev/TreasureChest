@@ -45,8 +45,9 @@ cssProvider.LoadFromString(@"
     .scrim-overlay { 
         background-image: linear-gradient(
             to bottom,
-            alpha(@window_bg_color, 0) 40%,
-            alpha(@window_bg_color, 0.8) 80%,
+            transparent 0%,
+            transparent 55%,
+            alpha(@window_bg_color, 0.75) 85%,
             @window_bg_color 100%
         );
     }

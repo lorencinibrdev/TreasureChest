@@ -7,10 +7,11 @@ namespace TreasureChest.Source.Views.Library;
 
 public class GridLibraryView : IView
 {
+    // Private Members:
     public GridLibraryView(LibraryView parent, SingleSelection selectionModel, SortListModel sortModel)
     {
         var gridFactory = SignalListItemFactory.New();
-        gridFactory.OnSetup += OnGridFactorySetup;
+        gridFactory.OnSetup += (sender, args) => OnGridFactorySetup(sender, args, parent);
         gridFactory.OnBind += OnGridFactoryBind;
 
         var gridView = GridView.New(selectionModel, gridFactory);
@@ -33,7 +34,7 @@ public class GridLibraryView : IView
         RootWidget = listScrolled;
     }
 
-    private static void OnGridFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
+    private static void OnGridFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args, LibraryView parent)
     {
         var listItem = (ListItem)args.Object;
 
@@ -94,6 +95,7 @@ public class GridLibraryView : IView
         mainBox.Append(platformBox);
         
         listItem.Child = mainBox;
+        GameContextMenuHelper.Attach(listItem, mainBox, parent);
     }
     
     private static async void OnGridFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)

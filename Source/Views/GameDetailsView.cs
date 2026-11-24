@@ -9,7 +9,6 @@ using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Views.Library;
-using WebKit;
 
 namespace TreasureChest.Source.Views;
 
@@ -20,15 +19,16 @@ public partial class GameDetailsView : IView
     private readonly Overlay _rootOverlay;
     private readonly PreferencesGroup _dlcGroup;
     private readonly PreferencesGroup _extrasGroup;
-    private readonly ScrolledWindow _scrolledWindowDescription;
+    private readonly Label _descriptionLabel;
     private readonly Stack _mainButtonStack;
-    
     private readonly GameEntry _game;
-
     private readonly Adw.Spinner _loadingSpinner;
     private readonly Box _contentBox;
-
     private uint _installProgressPulseTimeoutId;
+    
+    // Download Fields:
+    private ProgressBar? _downloadProgressBar;
+    private Label? _downloadStatusLabel;
 
     public GameDetailsView(MainWindow parentWindow, GameEntry game)
     {
@@ -94,24 +94,31 @@ public partial class GameDetailsView : IView
         var textCard = Box.New(Orientation.Vertical, 0);
         textCard.AddCssClass("card");
 
+        var cardContentBox = Box.New(Orientation.Vertical, 12);
+        cardContentBox.MarginTop = 20;
+        cardContentBox.MarginBottom = 20;
+        cardContentBox.MarginStart = 24;
+        cardContentBox.MarginEnd = 24;
+        
         var aboutHeader = Label.New("<b>About the Game</b>");
         aboutHeader.UseMarkup = true;
         aboutHeader.Xalign = 0;
-        aboutHeader.MarginTop = 16;
-        aboutHeader.MarginBottom = 8;
-        aboutHeader.MarginStart = 16;
-        aboutHeader.MarginEnd = 16;
-        textCard.Append(aboutHeader);
+        cardContentBox.Append(aboutHeader);
 
-        _scrolledWindowDescription = ScrolledWindow.New();
-        _scrolledWindowDescription.MarginStart = 12;
-        _scrolledWindowDescription.MarginEnd = 12;
-        _scrolledWindowDescription.MarginTop = 12;
-        _scrolledWindowDescription.MarginEnd = 12;
-        _scrolledWindowDescription.HasFrame = false;
-        _scrolledWindowDescription.HscrollbarPolicy = PolicyType.Never;
-        _scrolledWindowDescription.PropagateNaturalHeight = true;
-        textCard.Append(_scrolledWindowDescription);
+        _descriptionLabel = Label.New(null);
+        _descriptionLabel.Wrap = true;
+        _descriptionLabel.Xalign = 0;
+        _descriptionLabel.Selectable = true;
+        _descriptionLabel.UseMarkup = true;
+        _descriptionLabel.OnActivateLink += (_, args) =>
+        {
+            var confirmDialog = new ExternalLinkConfirmationDialog(_parentWindow, args.Uri);
+            confirmDialog.Present();
+            return true;
+        };
+        
+        cardContentBox.Append(_descriptionLabel);
+        textCard.Append(cardContentBox);
         
         _contentBox = Box.New(Orientation.Vertical, 24);
         _contentBox.Visible = false;
@@ -188,7 +195,7 @@ public partial class GameDetailsView : IView
         
         GLib.Functions.IdleAdd(0, () =>
         {
-            if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloading)) is not ProgressBar progressBar)
+            if (_downloadProgressBar is null || _downloadStatusLabel is null)
                 return false;
             
             var gameTasks = DownloadQueueService.Instance.GetTasksForGame(_game.Id);
@@ -200,8 +207,8 @@ public partial class GameDetailsView : IView
             var totalDownloadedBytesSum = gameTasks.Sum(t => t.TotalBytesDownloaded);
             var progress = totalBytesSum > 0 ? (double)totalDownloadedBytesSum / totalBytesSum : 0;
 
-            progressBar.Fraction = progress;
-            progressBar.Text = $"{progress:P1}";
+            _downloadProgressBar.Fraction = progress;
+            _downloadStatusLabel.SetText($"Downloading... {progress:P1}");
 
             return false;
         });
@@ -263,7 +270,7 @@ public partial class GameDetailsView : IView
             uninstallButton.OnClicked += (_, _) =>
             {
                 installedGameOptionsPopover.Popdown();
-                ConfirmUninstall(_game);
+                ConfirmUninstallDialog.Show(_parentWindow, _game);
             };
             
             var configureLaunchParametersButton = Button.NewWithLabel("Change Launch Parameters");
@@ -288,12 +295,6 @@ public partial class GameDetailsView : IView
             playSplitButton.OnClicked += (_, _) =>
             {
                 _ = LauncherService.LaunchGameAsync(_game, CancellationToken.None);
-
-                // 1. Resolve the config (either user's custom settings or fallback to GOG defaults)
-                // var config = LaunchConfigFactory.GetOrCreateConfig(installManifest);
-
-                // 2. Pass it to the LauncherService to handle process execution and UI states
-                // _ = LauncherService.Instance.LaunchGameAsync(_game, config);
             };
 
             _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
@@ -362,25 +363,50 @@ public partial class GameDetailsView : IView
         }
         
         // Checking for the downloading state:
-        if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloading)) is not ProgressBar)
+        if (_mainButtonStack.GetChildByName(nameof(EGameState.Downloading)) is null)
         {
-            var downloadProgressBar = ProgressBar.New();
-            downloadProgressBar.ShowText = true;
-            downloadProgressBar.MarginTop = 8;
-            downloadProgressBar.MarginBottom = 8;
-            downloadProgressBar.Vexpand = false;
+            var downloadingBox = Box.New(Orientation.Horizontal, 12);
+            downloadingBox.Valign = Align.Center;
 
-            _mainButtonStack.AddNamed(downloadProgressBar, nameof(EGameState.Downloading));
+            var progressInfoBox = Box.New(Orientation.Vertical, 6);
+            progressInfoBox.Valign = Align.Center;
+            
+            _downloadProgressBar = ProgressBar.New();
+            _downloadProgressBar.ShowText = false;
+            _downloadProgressBar.SetSizeRequest(220, -1);
+
+            _downloadStatusLabel = Label.New("Downloading... 0.0%");
+            _downloadStatusLabel.Xalign = 0;
+            _downloadStatusLabel.AddCssClass("caption-heading");
+            _downloadStatusLabel.AddCssClass("numeric");
+            
+            progressInfoBox.Append(_downloadStatusLabel);
+            progressInfoBox.Append(_downloadProgressBar);
+            
+            var cancelButton = Button.NewFromIconName("process-stop-symbolic");
+            cancelButton.TooltipText = "Cancel Download";
+            cancelButton.Valign = Align.Center;
+            cancelButton.AddCssClass("circular");
+            cancelButton.AddCssClass("osd");
+            
+            cancelButton.OnClicked += (_, _) =>
+            {
+                DownloadQueueService.CancelDownload(_game.Id, _game.Slug);
+            };
+            
+            downloadingBox.Append(progressInfoBox);
+            downloadingBox.Append(cancelButton);
+
+            _mainButtonStack.AddNamed(downloadingBox, nameof(EGameState.Downloading));
         }
         
         // Checking for the installing state:
         if (_mainButtonStack.GetChildByName(nameof(EGameState.Installing)) is not ProgressBar)
         {
             var installProgressBar = ProgressBar.New();
+            installProgressBar.SetSizeRequest(220, -1);
             installProgressBar.Text = "Installing...";
             installProgressBar.ShowText = true;
-            installProgressBar.MarginTop = 8;
-            installProgressBar.MarginBottom = 8;
             installProgressBar.Vexpand = false;
 
             _mainButtonStack.AddNamed(installProgressBar, nameof(EGameState.Installing));
@@ -390,10 +416,9 @@ public partial class GameDetailsView : IView
         if (_mainButtonStack.GetChildByName(nameof(EGameState.Uninstalling)) is not ProgressBar)
         {
             var uninstallProgressBar = ProgressBar.New();
+            uninstallProgressBar.SetSizeRequest(220, -1);
             uninstallProgressBar.Text = "Uninstalling...";
             uninstallProgressBar.ShowText = true;
-            uninstallProgressBar.MarginTop = 8;
-            uninstallProgressBar.MarginBottom = 8;
             uninstallProgressBar.Vexpand = false;
 
             _mainButtonStack.AddNamed(uninstallProgressBar, nameof(EGameState.Uninstalling));
@@ -430,15 +455,28 @@ public partial class GameDetailsView : IView
 
     private async Task FetchGameDescriptionAsync()
     {
-        var responseGameDescription =await GogService.Instance.FetchGameDescriptionAsync(_game.Id);
+        var responseGameDescription = await GogService.Instance.FetchGameDescriptionAsync(_game.Id);
 
         if (responseGameDescription?.Description is null ||
             string.IsNullOrWhiteSpace(responseGameDescription.Description.Lead) ||
             string.IsNullOrWhiteSpace(responseGameDescription.Description.Full))
             return;
         
-        // Showing the HTML description render:
-        CreateDescriptionHtmlWidget(responseGameDescription.Description.Lead);
+        // Trying to parse GOG's HTML to a label:
+        var pangoMarkup = ConvertGogHtmlToPango(responseGameDescription.Description.Lead);
+
+        try
+        {
+            if (Pango.Functions.ParseMarkup(pangoMarkup, -1, 0, out _, out _, out _))
+            {
+                _descriptionLabel.SetMarkup(pangoMarkup);
+            }
+        }
+        catch (Exception)
+        {
+            var plainText = AllTags().Replace(pangoMarkup, string.Empty);
+            _descriptionLabel.SetText(System.Net.WebUtility.HtmlDecode(plainText));
+        }
 
         _loadingSpinner.Visible = false;
         _contentBox.Visible = true;
@@ -483,8 +521,6 @@ public partial class GameDetailsView : IView
                     case ESystemPlatform.MacOs:
                         macOsIcon.Visible = true;
                         break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
                 }
 
                 var platformRow = ActionRow.New();
@@ -575,48 +611,6 @@ public partial class GameDetailsView : IView
             // ignored
         }
     }
-
-    private void ConfirmUninstall(GameEntry gameEntry)
-    {
-        var extraBox = Box.New(Orientation.Vertical, 12);
-        extraBox.MarginTop = 12;
-        extraBox.MarginBottom = 12;
-        
-        var titleLabel = Label.New(gameEntry.Title);
-        titleLabel.AddCssClass("title-4");
-
-        var warningLabel = Label.New(I18n._("This will delete all installed files, possibly including your save game data."));
-        warningLabel.Wrap = true;
-        warningLabel.Justify = Justification.Center;
-        warningLabel.AddCssClass("warning");
-        
-        extraBox.Append(titleLabel);
-        extraBox.Append(warningLabel);
-        
-        var dialog = Adw.MessageDialog.New(
-            parent: _parentWindow,
-            heading: I18n._("Uninstall Game?"),
-            body: I18n._("Are you sure you want to completely uninstall the game?"));
-
-        dialog.ExtraChild = extraBox;
-        
-        dialog.AddResponse("cancel", I18n._("Cancel"));
-        dialog.AddResponse("uninstall", I18n._("Uninstall"));
-        
-        dialog.SetResponseAppearance("uninstall", ResponseAppearance.Destructive);
-        dialog.SetDefaultResponse("cancel");
-        dialog.SetCloseResponse("cancel");
-
-        dialog.OnResponse +=  async(_, args) =>
-        {
-            if (args.Response == "uninstall")
-            {
-                await InstallerService.Instance.UninstallAsync(gameEntry);
-            }
-        };
-        
-        dialog.Present();
-    }
     
     private void ConfirmClearDownloadedData(GameEntry gameEntry)
     {
@@ -649,7 +643,7 @@ public partial class GameDetailsView : IView
         dialog.SetDefaultResponse("cancel");
         dialog.SetCloseResponse("cancel");
 
-        dialog.OnResponse +=  async(_, args) =>
+        dialog.OnResponse +=  (_, args) =>
         {
             if (args.Response == "clear")
             {
@@ -764,116 +758,49 @@ public partial class GameDetailsView : IView
         return row;
     }
     
-    private void CreateDescriptionHtmlWidget(string rawGogHtml)
+    private static string ConvertGogHtmlToPango(string html)
     {
-        var styledHtml = $$"""
-                           <!DOCTYPE html>
-                           <html>
-                           <head>
-                               <style>
-                                   :root {
-                                       color-scheme: dark light; /* Tells WebKit to respect system dark mode */
-                                   }
-                                   body {
-                                       font-family: system-ui, sans-serif;
-                                       background-color: transparent;
-                                       font-size: 14px;
-                                       line-height: 1.6;
-                                       padding: 0;
-                                       margin: 0;
-                                   }
-                                   a {
-                                       color: #3584e4; /* GNOME Accent Blue */
-                                       text-decoration: none;
-                                   }
-                               </style>
-                           </head>
-                           <body>
-                               {{rawGogHtml}}
-                           </body>
-                           </html>
-                           """;
-
-        styledHtml = HtmlRemoveImgTags().Replace(styledHtml, string.Empty);
-        styledHtml = HtmlRemoveVideoTags().Replace(styledHtml, string.Empty);
-        styledHtml = HtmlRemoveSourceTags().Replace(styledHtml, string.Empty);
-        styledHtml = HtmlRemoveClosureVideoTags().Replace(styledHtml, string.Empty);
-        styledHtml = HtmlCompressMultipleBrTags().Replace(styledHtml, "<br>");
-        styledHtml = HtmlRemoveHrTags().Replace(styledHtml, string.Empty);
+        var text = html;
         
-        var webView = WebView.New();
-        webView.SetBackgroundColor(new Gdk.RGBA { Red = 0, Green = 0, Blue = 0, Alpha = 0 });
-        webView.LoadHtml(styledHtml, null);
+        text = HtmlRemoveImgTags().Replace(text, string.Empty);
+        text = HtmlRemoveVideoTags().Replace(text, string.Empty);
+        text = HtmlRemoveSourceTags().Replace(text, string.Empty);
+        text = HtmlRemoveClosureVideoTags().Replace(text, string.Empty);
+        text = HtmlRemoveHrTags().Replace(text, string.Empty);
+        text = BrToNewLine().Replace(text, "\n");
+        text = ParagraphBreakToNewLine().Replace(text, "\n\n");
+        text = RemainingParagraphTags().Replace(text, string.Empty);
+        text = ListItemToBullet().Replace(text, "\n• ");
+        text = ListContainersAndClosures().Replace(text, string.Empty);
+        text = StrongToBold().Replace(text, "<$1b>");
+        text = EmToItalic().Replace(text, "<$1i>");
+        text = CleanAnchorTags().Replace(text, "<a href=$1>");
+        text = UnsupportedHtmlTags().Replace(text, string.Empty);
+        text = System.Net.WebUtility.HtmlDecode(text);
+        text = UnescapedAmpersand().Replace(text, "&amp;");
 
-        webView.OnDecidePolicy += (_, args) =>
-        {
-            var decision = args.Decision;
-
-            if (decision is NavigationPolicyDecision navigationDecision)
-            {
-                var type = navigationDecision.NavigationAction.GetNavigationType();
-                var uri = navigationDecision.NavigationAction.GetRequest().Uri;
-
-                if (type == NavigationType.LinkClicked)
-                {
-                    decision.Ignore();
-
-                    if (string.IsNullOrWhiteSpace(uri)) 
-                        return true;
-                    
-                    var confirmDialog = new ExternalLinkConfirmationDialog(_parentWindow, uri);
-                    confirmDialog.Present();
-
-                    return true;
-                }
-            }
-            
-            decision.Use();
-            return true;
-        };
-
-        webView.OnLoadChanged += async (_, args) =>
-        {
-            if (args.LoadEvent != LoadEvent.Finished)
-                return;
-
-            await Task.Delay(50);
-
-            try
-            {
-                var result = await webView.EvaluateJavascriptAsync("document.body.scrollHeight;");
-
-                if (!result.IsNumber()) 
-                    return;
-                
-                var contentHeight = result.ToInt32();
-
-                GLib.Functions.IdleAdd(0, () =>
-                {
-                    webView.SetSizeRequest(-1, contentHeight);
-                    _scrolledWindowDescription.MinContentHeight = contentHeight + 50;
-                    return false;
-                });
-            }
-            catch (Exception e)
-            {
-                await Console.Out.WriteLineAsync($"[WARN] - Failed to calculate the WebView content height: {e.Message}");
-            }
-            
-        };
-
-        _scrolledWindowDescription.Child = webView;
+        return text.Trim();
     }
     
     // Properties:
     public string Identifier => "GameDetailsView";
     public Widget RootWidget => _rootOverlay;
-    
-    // Some Regex pre-compiled patterns:
-    [GeneratedRegex(@"<img\b[^>]*>")] private static partial Regex HtmlRemoveImgTags();
+
+    // Pre-compiled GeneratedRegex patterns:
+    [GeneratedRegex(@"<img\b[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveImgTags();
     [GeneratedRegex(@"<video\b[^>]*>.*?</video>", RegexOptions.Singleline | RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveVideoTags();
     [GeneratedRegex("</video>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveClosureVideoTags();
     [GeneratedRegex(@"<source\b[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveSourceTags();
-    [GeneratedRegex(@"(<br\s*/?>\s*){2,}", RegexOptions.IgnoreCase)] private static partial Regex HtmlCompressMultipleBrTags();
-    [GeneratedRegex("<hr>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveHrTags();
+    [GeneratedRegex(@"<hr\s*/?>", RegexOptions.IgnoreCase)] private static partial Regex HtmlRemoveHrTags();
+    [GeneratedRegex(@"<\s*br\s*/?>", RegexOptions.IgnoreCase)] private static partial Regex BrToNewLine();
+    [GeneratedRegex(@"<\s*/p\s*>\s*<\s*p[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex ParagraphBreakToNewLine();
+    [GeneratedRegex(@"<\s*/?p[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex RemainingParagraphTags();
+    [GeneratedRegex(@"<\s*li[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex ListItemToBullet();
+    [GeneratedRegex(@"<\s*/?(li|ul|ol)[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex ListContainersAndClosures(); 
+    [GeneratedRegex(@"<\s*(/?)\s*strong\b[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex StrongToBold();
+    [GeneratedRegex(@"<\s*(/?)\s*em\b[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex EmToItalic();
+    [GeneratedRegex(@"<(?!/?(b|i|u|a)\b)[^>]+>", RegexOptions.IgnoreCase)] private static partial Regex UnsupportedHtmlTags();
+    [GeneratedRegex(@"&(?!amp;|lt;|gt;|quot;|apos;)")] private static partial Regex UnescapedAmpersand();
+    [GeneratedRegex(@"<a\b[^>]*?\bhref\s*=\s*([""'][^""']*[""'])[^>]*>", RegexOptions.IgnoreCase)] private static partial Regex CleanAnchorTags();
+    [GeneratedRegex(@"<[^>]+>")] private static partial Regex AllTags();
 }

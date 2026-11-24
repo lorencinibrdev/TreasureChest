@@ -10,7 +10,7 @@ public class ListCompactLibraryView : IView
     public ListCompactLibraryView(LibraryView parent, SingleSelection selectionModel, SortListModel sortModel)
     {
         var listFactory = SignalListItemFactory.New();
-        listFactory.OnSetup += OnListFactorySetup;
+        listFactory.OnSetup += (sender, args) => OnListFactorySetup(sender, args, parent);
         listFactory.OnBind += OnListFactoryBind;
 
         var listView = ListView.New(selectionModel, listFactory);
@@ -34,7 +34,7 @@ public class ListCompactLibraryView : IView
         RootWidget = listScrolled;
     }
     
-    private void OnListFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
+    private static void OnListFactorySetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args, LibraryView parent)
     {
         var listItem = (ListItem)args.Object;
 
@@ -78,6 +78,7 @@ public class ListCompactLibraryView : IView
         rowBox.Append(spinner);
 
         listItem.Child = rowBox;
+        GameContextMenuHelper.Attach(listItem, rowBox, parent);
     }
 
     private static async void OnListFactoryBind(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
