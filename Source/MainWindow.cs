@@ -160,14 +160,8 @@ public partial class MainWindow
             _libraryView.SetSearchActive(isLibrary);
         };
         
-        // Adding the buttons:
-        var downloadMenuButton = MenuButton.New();
-        downloadMenuButton.SetIconName("open-menu-symbolic");
-        downloadMenuButton.TooltipText = "Main Menu";
-        
         headerBar.PackEnd(menuButton);
         headerBar.PackEnd(libraryControls);
-        headerBar.PackEnd(downloadMenuButton);
 
         return headerBar;
     }
