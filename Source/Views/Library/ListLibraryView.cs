@@ -104,8 +104,7 @@ public class ListLibraryView : IView
             macosIcon.Visible = game.SystemCompatibility.MacOs;
 
             label.SetText(game.Title);
-            picture.SetFile(null);
-
+            
             var currentGameState = LibraryService.Instance.GetGameState(game.Id);
 
             switch (currentGameState)
@@ -139,11 +138,20 @@ public class ListLibraryView : IView
                     break;
             }
 
-            var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.SidebarIcon2X, game.IconPath);
-
-            if (listItem.Item == game && File.Exists(localImagePath))
+            if (ImagePrefetchService.Instance.TryGetCachedImagePath(game.Id, EImageType.SidebarIcon2X, out var cachedPath))
             {
-                picture.SetFilename(localImagePath);
+                picture.SetFilename(cachedPath);
+            }
+            else
+            {
+                picture.SetFile(null);
+                
+                var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.SidebarIcon2X, game.IconPath);
+
+                if (listItem.Item == game && File.Exists(localImagePath))
+                {
+                    picture.SetFilename(localImagePath);
+                }
             }
         }
         catch (Exception)

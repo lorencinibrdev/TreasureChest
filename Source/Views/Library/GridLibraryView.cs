@@ -15,9 +15,8 @@ public class GridLibraryView : IView
         gridFactory.OnBind += OnGridFactoryBind;
 
         var gridView = GridView.New(selectionModel, gridFactory);
-        gridView.MinColumns = 1;
+        gridView.MinColumns = 2;
         gridView.MaxColumns = 50;
-        gridView.Halign = Align.Center;
         
         gridView.OnActivate += (_, args) =>
         {
@@ -124,7 +123,6 @@ public class GridLibraryView : IView
             macosIcon.Visible = game.SystemCompatibility.MacOs;
         
             label.SetText(game.Title);
-            picture.SetFile(null);
 
             var currentGameState = LibraryService.Instance.GetGameState(game.Id);
 
@@ -159,14 +157,23 @@ public class GridLibraryView : IView
                     break;
             }
 
-            var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.Logo2X, game.LogoPath);
-
-            if (listItem.Item != game) 
-                return;
-        
-            if (File.Exists(localImagePath))
+            if (ImagePrefetchService.Instance.TryGetCachedImagePath(game.Id, EImageType.Logo2X, out var cachedPath))
             {
-                picture.SetFilename(localImagePath);
+                picture.SetFilename(cachedPath);
+            }
+            else
+            {
+                picture.SetFile(null);
+                
+                var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.Logo2X, game.LogoPath);
+
+                if (listItem.Item != game) 
+                    return;
+        
+                if (File.Exists(localImagePath))
+                {
+                    picture.SetFilename(localImagePath);
+                }
             }
         }
         catch (Exception)

@@ -12,6 +12,7 @@ public class LibraryView : IView
 {
     // Private Members:
     private readonly Gio.ListStore _store;
+    private readonly Box _rootBox;
     private readonly Stack _mainStack;
     private readonly Stack _viewTypeStack;
     private readonly Dictionary<ELibraryViewMode, IView> _loadedViews = [];
@@ -21,17 +22,18 @@ public class LibraryView : IView
     private readonly CustomFilter _filter;
     private bool _sortAscending = true;
     private bool _showOnlyInstalled;
+    
+    // Search Fields:
+    private readonly SearchBar _searchBar;
+    private readonly SearchEntry _searchEntry;
+    private string _searchQuery = string.Empty;
 
     public LibraryView(MainWindow parentWindow)
     {
         ParentWindow = parentWindow;
         _store = Gio.ListStore.New(GameModel.GetGType());
 
-        _filter = CustomFilter.New(item =>
-        {
-            var game = (GameModel)item;
-            return !_showOnlyInstalled || LibraryService.Instance.GetGameState(game.Id) == EGameState.Installed;
-        });
+        _filter = CustomFilter.New(FilterGames);
         
         var filterModel = FilterListModel.New(_store, _filter);
 
@@ -73,17 +75,81 @@ public class LibraryView : IView
         _mainStack.AddNamed(_viewTypeStack, "grid_page");
         _mainStack.SetVisibleChildName("loading_page");
         
+        // The Search fields:
+        _searchEntry = SearchEntry.New();
+        _searchEntry.PlaceholderText = "Search games...";
+        _searchEntry.Hexpand = true;
+
+        _searchEntry.OnSearchChanged += (_, _) =>
+        {
+            var previousQuery = _searchQuery;
+            _searchQuery = _searchEntry.GetText().Trim();
+
+            var change = FilterChange.Different;
+
+            if (!string.IsNullOrEmpty(previousQuery) && _searchQuery.Contains(previousQuery, StringComparison.OrdinalIgnoreCase))
+            {
+                change = FilterChange.MoreStrict;
+            }
+            else if (!string.IsNullOrEmpty(_searchQuery) && previousQuery.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+            {
+                change = FilterChange.LessStrict;
+            }
+            
+            _filter.Changed(change);
+
+            if (_selectionModel.GetNItems() > 0)
+            {
+                _selectionModel.SelectItem(0, true);
+            }
+        };
+
+        _searchEntry.OnActivate += (_, _) =>
+        {
+            if (_selectionModel.SelectedItem is GameModel targetGame)
+            {
+                ShowGameDetailsView(targetGame);
+            }
+        };
+
+        var searchClamp = Adw.Clamp.New();
+        searchClamp.MaximumSize = 400;
+        searchClamp.Child = _searchEntry;
+
+        _searchBar = SearchBar.New();
+        _searchBar.Child = searchClamp;
+        _searchBar.ConnectEntry(_searchEntry);
+        _searchBar.SetKeyCaptureWidget(RootWidget);
+        
         _ = LoadCachedLibraryDataAsync();
         
         LibraryService.Instance.GameStateChanged += HandleGameStateChanged;
 
-        _mainStack.OnUnrealize += (_, _) =>
+        _rootBox = Box.New(Orientation.Vertical, 0);
+        _rootBox.Append(_searchBar);
+        _rootBox.Append(_mainStack);
+
+        _rootBox.OnUnrealize += (_, _) =>
         {
             LibraryService.Instance.GameStateChanged -= HandleGameStateChanged;
         };
         
         // Setting up the current saved view:
         SetViewMode(SettingsService.Instance.ViewMode);
+    }
+
+    private bool FilterGames(GObject.Object item)
+    {
+        if (item is not GameModel gameModel)
+            return false;
+
+        if (_showOnlyInstalled && LibraryService.Instance.GetGameState(gameModel.Id) != EGameState.Installed)
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
+            return gameModel.Title.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase);
+
+        return true;
     }
 
     private void HandleGameStateChanged(long gameId, EGameState newState)
@@ -116,6 +182,38 @@ public class LibraryView : IView
             return;
         
         ParentWindow.ShowGameDetails(gameEntry);
+    }
+
+    public Widget CreateHeaderControls()
+    {
+        var controlsBox = Box.New(Orientation.Horizontal, 6);
+
+        var searchButton = ToggleButton.New();
+        searchButton.IconName = "system-search-symbolic";
+        searchButton.TooltipText = "Search Library (Ctrl+F)";
+
+        searchButton.BindProperty(
+            "active",
+            _searchBar,
+            "search-mode-enabled",
+            GObject.BindingFlags.Bidirectional | GObject.BindingFlags.SyncCreate
+        );
+        
+        controlsBox.Append(searchButton);
+        controlsBox.Append(CreateViewChangeButton());
+        controlsBox.Append(CreateSortAndFilterButton());
+
+        return controlsBox;
+    }
+
+    public void SetSearchActive(bool isTabActive)
+    {
+        _searchBar.SetKeyCaptureWidget(isTabActive ? ParentWindow : null);
+
+        if (!isTabActive)
+        {
+            _searchBar.SearchModeEnabled = false;
+        }
     }
 
     public Widget CreateViewChangeButton()
@@ -351,5 +449,5 @@ public class LibraryView : IView
     // Properties:
     public string Identifier => "LibraryView";
     public MainWindow ParentWindow { get; }
-    public Widget RootWidget => _mainStack;
+    public Widget RootWidget => _rootBox;
 }

@@ -141,12 +141,24 @@ public partial class MainWindow
         AddAction(preferencesAction);
         
         _parentApplication.SetAccelsForAction("win.preferences", ["<Ctrl>comma"]);
+        
+        var libraryControls = _libraryView.CreateHeaderControls();
+        var isLibraryInitiallyVisible = targetViewStack.VisibleChildName is not null &&
+                                        targetViewStack.VisibleChildName.Equals(nameof(EMainWindowTabs.Library), StringComparison.InvariantCultureIgnoreCase);
+        
+        libraryControls.Visible = isLibraryInitiallyVisible;
+        _libraryView.SetSearchActive(isLibraryInitiallyVisible);
 
-        var libraryViewButton = _libraryView.CreateViewChangeButton();
-        var librarySortAndFilterButton = _libraryView.CreateSortAndFilterButton();
-
-        var searchButton = Button.NewFromIconName("edit-find-symbolic");
-        menuButton.SetTooltipText("Search");
+        targetViewStack.OnNotify += (sender, args) =>
+        {
+            if (args.Pspec.GetName() != "visible-child-name")
+                return;
+            
+            var isLibrary = targetViewStack.VisibleChildName is not null &&
+                            targetViewStack.VisibleChildName.Equals(nameof(EMainWindowTabs.Library), StringComparison.InvariantCultureIgnoreCase);
+            libraryControls.Visible = isLibrary;
+            _libraryView.SetSearchActive(isLibrary);
+        };
         
         // Adding the buttons:
         var downloadMenuButton = MenuButton.New();
@@ -154,9 +166,7 @@ public partial class MainWindow
         downloadMenuButton.TooltipText = "Main Menu";
         
         headerBar.PackEnd(menuButton);
-        headerBar.PackEnd(librarySortAndFilterButton);
-        headerBar.PackEnd(libraryViewButton);
-        headerBar.PackEnd(searchButton);
+        headerBar.PackEnd(libraryControls);
         headerBar.PackEnd(downloadMenuButton);
 
         return headerBar;
@@ -188,6 +198,8 @@ public partial class MainWindow
 
     public void ShowGameDetails(GameEntry game)
     {
+        _libraryView.SetSearchActive(false);
+        
         var gameId = $"GameDetails_{game.Id}";
         var gameView = new GameDetailsView(this, game);
         
@@ -208,7 +220,11 @@ public partial class MainWindow
         {
             var activeGameView = _rootStack.GetVisibleChild();
             SetRootState(EMainWindowViews.MainApp);
-        
+            
+            var isLibrary = _mainAppViewStack.VisibleChildName is not null &&
+                            _mainAppViewStack.VisibleChildName.Equals(nameof(EMainWindowTabs.Library), StringComparison.InvariantCultureIgnoreCase);
+            _libraryView.SetSearchActive(isLibrary);
+            
             await Task.Delay(TransitionDurationExtended);
 
             if (activeGameView is null || activeGameView == _rootStack.GetVisibleChild()) 

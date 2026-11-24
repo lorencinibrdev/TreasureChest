@@ -1,7 +1,21 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using TreasureChest.Source.Services.Library;
 
 namespace TreasureChest.Source.Services.GOG;
+
+public class CachedGameImages
+{
+    // Properties:
+    public string LogoPath { get; set; } = string.Empty;
+    public string Logo2XPath { get; set; } = string.Empty;
+    public string SidebarIconPath { get; set; } = string.Empty;
+    public string SidebarIcon2XPath { get; set; } = string.Empty;
+    public string BackgroundPath { get; set; } = string.Empty;
+    public string IconPath { get; set; } = string.Empty;
+    public string MenuNotificationAvPath { get; set; } = string.Empty;
+    public string MenuNotificationAv2Path { get; set; } = string.Empty;
+}
 
 public class ImagePrefetchService
 {
@@ -9,6 +23,7 @@ public class ImagePrefetchService
     private readonly HttpClient _imageDownloadClient = new();
     private readonly SemaphoreSlim _throttleTasker = new(10);
     private readonly ConcurrentDictionary<string, Task<string>> _ongoingTasks = new();
+    private readonly ConcurrentDictionary<long, CachedGameImages> _cachedPaths = new();
 
     private ImagePrefetchService()
     {
@@ -23,9 +38,12 @@ public class ImagePrefetchService
         var localPath = BuildLocalPath(gameId.ToString(), imageType, url);
 
         if (File.Exists(localPath))
+        {
+            UpdateCacheStateForGame(gameId, imageType, localPath);
             return localPath;
+        }
 
-        return await _ongoingTasks.GetOrAdd(localPath, _ => DownloadImageInternalAsync(url, localPath, true));
+        return await _ongoingTasks.GetOrAdd(localPath, _ => DownloadImageInternalAsync(gameId, imageType, url, localPath, true));
     }
     
     public async Task PrefetchLibraryImagesAsync(IReadOnlyList<GameEntry> gameList)
@@ -36,10 +54,10 @@ public class ImagePrefetchService
         
         foreach (var game in gameList)
         {
-            EnqueueBackgroundDownload(tasks, game.Id.ToString(), EImageType.Logo2X, game.ImageLinks.Logo2X);
-            EnqueueBackgroundDownload(tasks, game.Id.ToString(), EImageType.SidebarIcon2X, game.ImageLinks.SidebarIcon2X);
-            EnqueueBackgroundDownload(tasks, game.Id.ToString(), EImageType.Logo, game.ImageLinks.Logo);
-            EnqueueBackgroundDownload(tasks, game.Id.ToString(), EImageType.SidebarIcon, game.ImageLinks.SidebarIcon);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.Logo2X, game.ImageLinks.Logo2X);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.SidebarIcon2X, game.ImageLinks.SidebarIcon2X);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.Logo, game.ImageLinks.Logo);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.SidebarIcon, game.ImageLinks.SidebarIcon);
         }
 
         await Task.WhenAll(tasks);
@@ -49,20 +67,46 @@ public class ImagePrefetchService
         
         foreach (var game in gameList)
         {
-            var idStr = game.Id.ToString();
-            
-            EnqueueBackgroundDownload(tasks, idStr, EImageType.Background, game.ImageLinks.Background);
-            EnqueueBackgroundDownload(tasks, idStr, EImageType.Icon, game.ImageLinks.Icon);
-            EnqueueBackgroundDownload(tasks, idStr, EImageType.MenuNotificationAv, game.ImageLinks.MenuNotificationAv);
-            EnqueueBackgroundDownload(tasks, idStr, EImageType.MenuNotificationAv2, game.ImageLinks.MenuNotificationAv2);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.Background, game.ImageLinks.Background);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.Icon, game.ImageLinks.Icon);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.MenuNotificationAv, game.ImageLinks.MenuNotificationAv);
+            EnqueueBackgroundDownload(tasks, game.Id, EImageType.MenuNotificationAv2, game.ImageLinks.MenuNotificationAv2);
         }
         
         await Task.WhenAll(tasks);
         await Console.Out.WriteLineAsync("[INFO] - Secondary media prefetch complete.");
         await Console.Out.WriteLineAsync($"Loaded {gameList.Count} images. Prefetch completed.");
     }
+
+    public bool TryGetCachedImagePath(long gameId, EImageType imageType, [NotNullWhen(true)]out string? localPath)
+    {
+        if (_cachedPaths.TryGetValue(gameId, out var cachedGameImages))
+        {
+            var foundPath = imageType switch
+            {
+                EImageType.Background => cachedGameImages.BackgroundPath,
+                EImageType.Logo => cachedGameImages.LogoPath,
+                EImageType.Logo2X => cachedGameImages.Logo2XPath,
+                EImageType.SidebarIcon => cachedGameImages.SidebarIconPath,
+                EImageType.SidebarIcon2X => cachedGameImages.SidebarIcon2XPath,
+                EImageType.MenuNotificationAv => cachedGameImages.MenuNotificationAvPath,
+                EImageType.MenuNotificationAv2 => cachedGameImages.MenuNotificationAv2Path,
+                EImageType.Icon => cachedGameImages.IconPath,
+                _ => throw new ArgumentOutOfRangeException(nameof(imageType), imageType, null)
+            };
+
+            if (!string.IsNullOrWhiteSpace(foundPath))
+            {
+                localPath = foundPath;
+                return true;
+            }
+        }
+
+        localPath = null;
+        return false;
+    }
     
-    private async Task<string> DownloadImageInternalAsync(string url, string localPath, bool isPriority)
+    private async Task<string> DownloadImageInternalAsync(long gameId, EImageType imageType, string url, string localPath, bool isPriority)
     {
         if (url.StartsWith("//"))
         {
@@ -76,8 +120,13 @@ public class ImagePrefetchService
         
         try
         {
+            var tempPath = $"{localPath}.tmp";
             var imageData = await _imageDownloadClient.GetByteArrayAsync(url);
-            await File.WriteAllBytesAsync(localPath, imageData);
+            await File.WriteAllBytesAsync(tempPath, imageData);
+            File.Move(tempPath, localPath, true);
+
+            UpdateCacheStateForGame(gameId, imageType, localPath);
+            
             return localPath;
         }
         catch (Exception e)
@@ -96,21 +145,64 @@ public class ImagePrefetchService
         }
     }
 
-    private void EnqueueBackgroundDownload(List<Task> tasks, string gameId, EImageType imageType, string url)
+    private void UpdateCacheStateForGame(long gameId, EImageType imageType, string localPath)
+    {
+        var cachedData = _cachedPaths.GetOrAdd(gameId, _ => new CachedGameImages());
+
+        lock (cachedData)
+        {
+            switch (imageType)
+            {
+                case EImageType.Background:
+                    cachedData.BackgroundPath = localPath;
+                    break;
+                case EImageType.Logo:
+                    cachedData.LogoPath = localPath;
+                    break;
+                case EImageType.Logo2X:
+                    cachedData.Logo2XPath = localPath;
+                    break;
+                case EImageType.SidebarIcon:
+                    cachedData.SidebarIconPath = localPath;
+                    break;
+                case EImageType.SidebarIcon2X:
+                    cachedData.SidebarIcon2XPath = localPath;
+                    break;
+                case EImageType.MenuNotificationAv:
+                    cachedData.MenuNotificationAvPath = localPath;
+                    break;
+                case EImageType.MenuNotificationAv2:
+                    cachedData.MenuNotificationAv2Path = localPath;
+                    break;
+                case EImageType.Icon:
+                    cachedData.IconPath = localPath;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(imageType), imageType, null);
+            }
+        }
+        
+        _cachedPaths[gameId] = cachedData;
+    }
+
+    private void EnqueueBackgroundDownload(List<Task> tasks, long gameId, EImageType imageType, string url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return;
 
-        var localPath = BuildLocalPath(gameId, imageType, url);
+        var localPath = BuildLocalPath(gameId.ToString(), imageType, url);
 
         if (File.Exists(localPath))
+        {
+            UpdateCacheStateForGame(gameId, imageType, localPath);
             return;
+        }
         
-        var downloadTask = _ongoingTasks.GetOrAdd(localPath, _ => DownloadImageInternalAsync(url, localPath, false));
+        var downloadTask = _ongoingTasks.GetOrAdd(localPath, _ => DownloadImageInternalAsync(gameId, imageType, url, localPath, false));
         tasks.Add(downloadTask);
     }
 
-    private string BuildLocalPath(string gameId, EImageType imageType, string url)
+    private static string BuildLocalPath(string gameId, EImageType imageType, string url)
     {
         var ext = Path.GetExtension(url.Split('?')[0]);
 
@@ -143,5 +235,5 @@ public class ImagePrefetchService
     
     // Properties:
     public static ImagePrefetchService Instance { get; } = new();
-    private string LibraryImageCacheDirectoryPath => Path.Combine(SettingsService.CacheDirectory, "images", "library");
+    private static string LibraryImageCacheDirectoryPath => Path.Combine(SettingsService.CacheDirectory, "images", "library");
 }
