@@ -16,10 +16,6 @@
         </key>
         
         <!-- UI & Behavior Options -->
-        <key name="first-run" type="b">
-            <default>true</default>
-            <summary>Indicates if the software is running for the first time</summary>
-        </key>
         <key name="view-mode" type="s">
             <choices>
                 <choice value="grid"/>

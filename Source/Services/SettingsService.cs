@@ -47,11 +47,6 @@ public class SettingsService
         set => _settings.SetString("runtimes-folder", value);
     }
     
-    public bool IsFirstRun {
-        get => _settings.GetBoolean("first-run");
-        set => _settings.SetBoolean("first-run", value);
-    }
-    
     public ELibraryViewMode ViewMode
     {
         get

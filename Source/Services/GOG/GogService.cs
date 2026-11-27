@@ -173,9 +173,6 @@ public class GogService
         await ProcessGameList(gameResponse);
         await Console.Out.WriteLineAsync($"[INFO] - Successfully retrieved the game list. Found {LibraryService.Instance.GamesCount} games.");
         
-        // Saving the gamelist information on the local cache:
-        await LibraryService.Instance.SaveLibraryAsync();
-        
         return true;
     }
 
@@ -227,12 +224,13 @@ public class GogService
         if (gameList.Games is null)
             return false;
         
+        var finalGameList = new List<GogResponseGameDetails>();
         var batches = gameList.Games.Chunk(50).ToList();
         var count = 1;
 
         foreach (var batch in batches)
         {
-            await Console.Out.WriteAsync($"[INFO] - Fetching game details (Batch {count} of {batches.Count})...)");
+            await Console.Out.WriteLineAsync($"[INFO] - Fetching game details (Batch {count} of {batches.Count})...)");
             
             var idList = string.Join(",", batch);
             var url = $"https://embed.gog.com/products?ids={idList}?expand=description";
@@ -246,8 +244,6 @@ public class GogService
             }
             
             response.EnsureSuccessStatusCode();
-            
-            var jsonResponse = await response.Content.ReadAsStringAsync();
 
             var fetchedDetails = await response.Content.ReadFromJsonAsync<List<GogResponseGameDetails>>();
 
@@ -258,14 +254,20 @@ public class GogService
 
                 if (onlyBaseGames.Count > 0)
                 {
-                    LibraryService.Instance.AddGames(onlyBaseGames);    
+                    finalGameList.AddRange(onlyBaseGames);
                 }
             }
             
-            await Console.Out.WriteLineAsync("\tDone.");
             count++;
         }
         
+        // Do we have anything to sync?
+        if (finalGameList.Count == 0) 
+            return true;
+        
+        await LibraryService.Instance.CommitGamesAsync(finalGameList, true);
+        await Console.Out.WriteAsync($"[INFO] - Commited a total of {finalGameList.Count} games to the LibraryService.");
+
         return true;
     }
 

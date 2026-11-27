@@ -55,25 +55,38 @@ cssProvider.LoadFromString(@"
         /* Fades from transparent to the solid card background color */
         background-image: linear-gradient(to bottom, alpha(@card_bg_color, 0), @card_bg_color);
     }
-/* Container badge styling */
-.platform-chip {
-    background-color: alpha(@window_fg_color, 0.08);
-    border-radius: 12px;
-    padding: 3px 8px;
-}
+    /* Container badge styling */
+    .platform-chip {
+        background-color: alpha(@window_fg_color, 0.08);
+        border-radius: 12px;
+        padding: 3px 8px;
+    }
 
-/* Individual accent highlights */
-.platform-icon-linux {
-    color: @accent_color;
-}
+    /* Individual accent highlights */
+    .platform-icon-linux {
+        color: @accent_color;
+    }
 
-.platform-icon-windows {
-    color: alpha(@window_fg_color, 0.7);
-}
+    .platform-icon-windows {
+        color: alpha(@window_fg_color, 0.7);
+    }
 
-.platform-icon-mac {
-    color: alpha(@window_fg_color, 0.7);
-}
+    .platform-icon-mac {
+        color: alpha(@window_fg_color, 0.7);
+    }
+    
+    /* Library Formatting */
+    gridview.library-grid {
+        padding: 12px;
+    }
+
+    .game-cover {
+        border-radius: 8px;
+    }
+
+    .game-icon {
+        border-radius: 6px;
+    }
 ");
 
 Gtk.StyleContext.AddProviderForDisplay(

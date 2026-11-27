@@ -17,11 +17,14 @@ public class GridLibraryView : IView
         var gridView = GridView.New(selectionModel, gridFactory);
         gridView.MinColumns = 2;
         gridView.MaxColumns = 50;
+        gridView.AddCssClass("library-grid");
         
         gridView.OnActivate += (_, args) =>
         {
-            var clickModel = (GameModel)sortModel.GetObject(args.Position)!;
-            parent.ShowGameDetailsView(clickModel);
+            if (sortModel.GetObject(args.Position) is GameModel clickedModel)
+            {
+                parent.ShowGameDetailsView(clickedModel);
+            }
         };
 
         var listScrolled = ScrolledWindow.New();
@@ -37,20 +40,21 @@ public class GridLibraryView : IView
     {
         var listItem = (ListItem)args.Object;
 
-        // This is the main box for the view:
         var mainBox = Box.New(Orientation.Vertical, 8);
         mainBox.Valign = Align.Start;
-        mainBox.MarginTop = 16;
-        mainBox.MarginBottom = 16;
-        mainBox.MarginStart = 16;
-        mainBox.MarginEnd = 16;
+        mainBox.MarginTop = 8;
+        mainBox.MarginBottom = 8;
+        mainBox.MarginStart = 8;
+        mainBox.MarginEnd = 8;
         
-        var picture = Picture.New();
-        picture.ContentFit = ContentFit.Cover;
-        picture.SetSizeRequest(200, 120);
+        var gameCover = Picture.New();
+        gameCover.ContentFit = ContentFit.Cover;
+        gameCover.SetSizeRequest(240, 135);
 
         var imageOverlay = Overlay.New();
-        imageOverlay.Child = picture;
+        imageOverlay.Overflow = Overflow.Hidden;
+        imageOverlay.AddCssClass("game-cover");
+        imageOverlay.Child = gameCover;
         
         var badgeButton = Button.New();
         badgeButton.Valign = Align.Start;
@@ -102,8 +106,9 @@ public class GridLibraryView : IView
         try
         {
             var listItem = (ListItem)args.Object;
-            var game = (GameModel)listItem.Item!;
-            var mainBox = (Box)listItem.Child!;
+
+            if (listItem.Item is not GameModel gameModel || listItem.Child is not Box mainBox)
+                return;
         
             // Fetching the widgets from the layout hierarchy:
             var imageOverlay = (Overlay)mainBox.GetFirstChild()!;
@@ -118,63 +123,24 @@ public class GridLibraryView : IView
             var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
             var macosIcon = (Image)linuxIcon.GetNextSibling()!;
 
-            windowsIcon.Visible = game.SystemCompatibility.Windows;
-            linuxIcon.Visible = game.SystemCompatibility.Linux;
-            macosIcon.Visible = game.SystemCompatibility.MacOs;
+            windowsIcon.Visible = gameModel.SystemCompatibility.Windows;
+            linuxIcon.Visible = gameModel.SystemCompatibility.Linux;
+            macosIcon.Visible = gameModel.SystemCompatibility.MacOs;
         
-            label.SetText(game.Title);
+            label.SetText(gameModel.Title);
 
-            var currentGameState = LibraryService.Instance.GetGameState(game.Id);
+            var currentGameState = LibraryService.Instance.GetGameState(gameModel.Id);
+            
+            LibraryItemHelper.ApplyGameState(
+                currentGameState,
+                mainBox,
+                picture,
+                badgeButton,
+                downloadingSpinner,
+                icon => badgeButton.IconName = icon
+            );
 
-            switch (currentGameState)
-            {
-                case EGameState.Downloading:
-                    picture.Opacity = 0.5;
-                    badgeButton.Visible = false;
-                    downloadingSpinner.Visible = true;
-                    mainBox.TooltipText = "Downloading Game...";
-                    break;
-                case EGameState.Downloaded:
-                    picture.Opacity = 0.8;
-                    badgeButton.Visible = true;
-                    badgeButton.IconName = "folder-download-symbolic";
-                    downloadingSpinner.Visible = false;
-                    mainBox.TooltipText = "Game is Downloaded, and ready to install.";
-                    break;
-                case EGameState.Installed:
-                    picture.Opacity = 1.0;
-                    badgeButton.Visible = false;
-                    downloadingSpinner.Visible = false;
-                    mainBox.TooltipText = "Game is Installed, and ready to play.";
-                    break;
-                case EGameState.Available:
-                default:
-                    picture.Opacity = 0.3;
-                    badgeButton.Visible = true;
-                    badgeButton.IconName = "cloud-symbolic";
-                    downloadingSpinner.Visible = false;
-                    mainBox.TooltipText = "Game is available for download.";
-                    break;
-            }
-
-            if (ImagePrefetchService.Instance.TryGetCachedImagePath(game.Id, EImageType.Logo2X, out var cachedPath))
-            {
-                picture.SetFilename(cachedPath);
-            }
-            else
-            {
-                picture.SetFile(null);
-                
-                var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.Logo2X, game.LogoPath);
-
-                if (listItem.Item != game) 
-                    return;
-        
-                if (File.Exists(localImagePath))
-                {
-                    picture.SetFilename(localImagePath);
-                }
-            }
+            await LibraryItemHelper.BindImageAsync(listItem, gameModel, picture, EImageType.Logo2X, gameModel.LogoPath);
         }
         catch (Exception)
         {

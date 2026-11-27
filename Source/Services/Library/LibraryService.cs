@@ -53,8 +53,19 @@ public class LibraryService
             _gameEntries[gameEntry.Id] = gameEntry;
             _gamePlayStats[gameEntry.Id] = gameEntry.PlayStats;
         }
+    }
 
-        _ = SavePlayStatsAsync();
+    public async Task CommitGamesAsync(List<GogResponseGameDetails> gameResponseList, bool saveToDisk)
+    {
+        AddGames(gameResponseList);
+        await InitializeGameStatesFromDiskAsync();
+
+        if (saveToDisk)
+        {
+            await SaveLibraryAsync();
+        }
+        
+        LibraryUpdated?.Invoke();
     }
 
     public IReadOnlyList<GameEntry> GetLoadedGames()
@@ -100,21 +111,27 @@ public class LibraryService
             await Console.Out.WriteLineAsync("[WARN] - Cached library file does not exists...");
             return false;
         }
-        
+
         try
         {
+            await LoadPlayStatsAsync();
+            
             await using var fileStream = File.OpenRead(LibraryFilePath);
-            var loadedLibrary =  await JsonSerializer.DeserializeAsync<List<GogResponseGameDetails>>(fileStream);
+            var loadedLibrary = await JsonSerializer.DeserializeAsync<List<GogResponseGameDetails>>(fileStream);
 
             if (loadedLibrary is null)
                 return false;
 
             AddGames(loadedLibrary);
-            
+
+            await InitializeGameStatesFromDiskAsync();
+
             await Console.Out.WriteLineAsync($"[INFO] - Successfully loaded the cached library file. {loadedLibrary.Count} games loaded from disk.");
+            
+            LibraryUpdated?.Invoke();
             return true;
         }
-        catch(Exception e)
+        catch (Exception e)
         {
             await Console.Out.WriteLineAsync($"[WARN] - Could not parse the cached library file: '{LibraryFilePath}'.");
             await Console.Out.WriteLineAsync(e.Message);
@@ -275,6 +292,7 @@ public class LibraryService
     private static string PlayStatsFilePath => Path.Combine(SettingsService.DataDirectory, $"user_playstats_{SettingsService.Instance.SavedUserId}.json");
     
     // Events for the library handling:
+    public event Action? LibraryUpdated;
     public event Action<long, EGameState>? GameStateChanged;
     public event Action<long, GamePlayStats>? GamePlayStatsChanged;
 }

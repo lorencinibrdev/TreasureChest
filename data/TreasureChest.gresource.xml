@@ -19,5 +19,7 @@
         <file>icons/view-list-compact-symbolic.svg</file>
         <file>icons/view-grid-symbolic.svg</file>
         <file>icons/view-grid-compact-symbolic.svg</file>
+        
+        <file>icons/io.github.lorencinibrdev.TreasureChest.svg</file>
     </gresource>
 </gresources>

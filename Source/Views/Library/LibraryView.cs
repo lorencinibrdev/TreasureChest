@@ -3,6 +3,7 @@ using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services;
 using TreasureChest.Source.Services.GOG;
 using TreasureChest.Source.Services.Library;
+using TreasureChest.Source.Services.Library.Records;
 using GameEntry = TreasureChest.Source.Services.Library.GameEntry;
 using Task = System.Threading.Tasks.Task;
 
@@ -22,6 +23,7 @@ public class LibraryView : IView
     private readonly CustomFilter _filter;
     private bool _sortAscending = true;
     private bool _showOnlyInstalled;
+    private bool _initialLoadCompleted;
     
     // Search Fields:
     private readonly SearchBar _searchBar;
@@ -119,11 +121,11 @@ public class LibraryView : IView
         _searchBar = SearchBar.New();
         _searchBar.Child = searchClamp;
         _searchBar.ConnectEntry(_searchEntry);
-        _searchBar.SetKeyCaptureWidget(RootWidget);
+        _searchBar.SetKeyCaptureWidget(ParentWindow);
         
-        _ = LoadCachedLibraryDataAsync();
-        
+        LibraryService.Instance.LibraryUpdated += HandleLibraryUpdated;
         LibraryService.Instance.GameStateChanged += HandleGameStateChanged;
+        LibraryService.Instance.GamePlayStatsChanged += HandlePlayTimeChanged;
 
         _rootBox = Box.New(Orientation.Vertical, 0);
         _rootBox.Append(_searchBar);
@@ -132,10 +134,22 @@ public class LibraryView : IView
         _rootBox.OnUnrealize += (_, _) =>
         {
             LibraryService.Instance.GameStateChanged -= HandleGameStateChanged;
+            LibraryService.Instance.LibraryUpdated -= HandleLibraryUpdated;
         };
         
         // Setting up the current saved view:
         SetViewMode(SettingsService.Instance.ViewMode);
+    }
+
+    private void HandleLibraryUpdated()
+    {
+        GLib.Functions.IdleAdd(0, () =>
+        {
+            var games = LibraryService.Instance.GetLoadedGames();
+            _ = MergeAndUpdateStore(games);
+            _ = ImagePrefetchService.Instance.PrefetchLibraryImagesAsync(games);
+            return false;
+        });
     }
 
     private bool FilterGames(GObject.Object item)
@@ -153,6 +167,30 @@ public class LibraryView : IView
     }
 
     private void HandleGameStateChanged(long gameId, EGameState newState)
+    {
+        GLib.Functions.IdleAdd(0, () =>
+        {
+            for (uint i = 0; i < _store.GetNItems(); i++)
+            {
+                var model = (GameModel)_store.GetObject(i)!;
+
+                if (model.Id != gameId) 
+                    continue;
+
+                if (LibraryService.Instance.TryGetGameEntry(gameId, out var gameEntry))
+                {
+                    var newModel = GameModel.New(gameEntry);
+                    _store.Splice(i, 1, [newModel], 1);
+                }
+                
+                break;
+            }
+
+            return false;
+        });
+    }
+    
+    private void HandlePlayTimeChanged(long gameId, GamePlayStats playTimeStats)
     {
         GLib.Functions.IdleAdd(0, () =>
         {
@@ -322,29 +360,7 @@ public class LibraryView : IView
         return sortButton;
     }
 
-    private async Task LoadCachedLibraryDataAsync()
-    {
-        if (!await LibraryService.Instance.LoadLibraryFromCacheAsync())
-            return;
-
-        await LibraryService.Instance.InitializeGameStatesFromDiskAsync();
-        
-        var gameList = LibraryService.Instance.GetLoadedGames();
-        await MergeAndUpdateLibrary(gameList);
-        _ = ImagePrefetchService.Instance.PrefetchLibraryImagesAsync(gameList);
-    }
-
-    public async Task RefreshNetworkLibraryDataAsync()
-    {
-        if (!await GogService.Instance.RefreshGameList())
-            return;
-        
-        var liveGames = LibraryService.Instance.GetLoadedGames();
-        await MergeAndUpdateLibrary(liveGames);
-        _ = ImagePrefetchService.Instance.PrefetchLibraryImagesAsync(liveGames);
-    }
-
-    public async Task MergeAndUpdateLibrary(IReadOnlyList<GameEntry> gameList)
+    public async Task MergeAndUpdateStore(IReadOnlyList<GameEntry> gameList)
     {
         await Console.Out.WriteLineAsync("[INFO] - Fetched a new game list from servers. Merging the diffs...");
         
@@ -369,15 +385,21 @@ public class LibraryView : IView
             }
         }
 
-        if (newEntriesFound > 0)
+        if (_initialLoadCompleted && newEntriesFound > 0)
         {
-            await Console.Out.WriteLineAsync($"[INFO] - Found {newEntriesFound} new entries. All of them merged.");
+            var message = newEntriesFound == 1
+                ? "1 new game added to your library"
+                : $"{newEntriesFound} new games added to your library";
+            
+            ParentWindow.ShowToastNotification(message);
+            await Console.Out.WriteLineAsync(message);
         }
         else
         {
             await Console.Out.WriteLineAsync("[INFO] - No new entries found. Already up to date.");
         }
-        
+
+        _initialLoadCompleted = true;
         _mainStack.SetVisibleChildName("grid_page");
     }
 

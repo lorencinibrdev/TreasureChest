@@ -14,15 +14,18 @@ public class ListLibraryView : IView
         listFactory.OnBind += OnListFactoryBind;
 
         var listView = ListView.New(selectionModel, listFactory);
+        listView.ShowSeparators = true;
         
         listView.OnActivate += (_, args) =>
         {
-            var clickModel = (GameModel)sortModel.GetObject(args.Position)!;
-            parent.ShowGameDetailsView(clickModel);
+            if (sortModel.GetObject(args.Position) is GameModel clickedModel)
+            {
+                parent.ShowGameDetailsView(clickedModel);
+            }
         };
 
         var listClamp = Adw.ClampScrollable.New();
-        listClamp.MaximumSize = 900;
+        listClamp.MaximumSize = 960;
         listClamp.Child = listView;
         
         var listScrolled = ScrolledWindow.New();
@@ -39,40 +42,47 @@ public class ListLibraryView : IView
         var listItem = (ListItem)args.Object;
 
         var rowBox = Box.New(Orientation.Horizontal, 12);
-        rowBox.MarginTop = 6;
-        rowBox.MarginBottom = 6;
+        rowBox.MarginTop = 8;
+        rowBox.MarginBottom = 8;
         rowBox.MarginStart = 12;
         rowBox.MarginEnd = 12;
 
-        var picture = Picture.New();
-        picture.SetSizeRequest(62, 62);
-        picture.ContentFit = ContentFit.Cover;
+        var gameIcon = Picture.New();
+        gameIcon.SetSizeRequest(64, 64);
+        gameIcon.ContentFit = ContentFit.Cover;
+        gameIcon.Overflow = Overflow.Hidden;
+        gameIcon.AddCssClass("game-icon");
 
-        var label = Label.New(null);
-        label.Halign = Align.Start;
-        label.Hexpand = true;
-        label.Ellipsize = Pango.EllipsizeMode.End;
+        var gameTitleLabel = Label.New(null);
+        gameTitleLabel.Halign = Align.Start;
+        gameTitleLabel.Hexpand = true;
+        gameTitleLabel.Ellipsize = Pango.EllipsizeMode.End;
+        gameTitleLabel.AddCssClass("heading");
+
+        var playTimeLabel = Label.New(null);
+        playTimeLabel.AddCssClass("dim-label");
+        playTimeLabel.AddCssClass("caption");
+        playTimeLabel.AddCssClass("numeric");
         
-        var gameStateIcon = Image.New();
-        gameStateIcon.MarginStart = 8;
-        
-        var spinner = Adw.Spinner.New();
-        spinner.SetSizeRequest(24, 24);
-        spinner.MarginStart = 8;
-        
-        // Preparing the icons for the supported platforms:
         var (windowsIcon, linuxIcon, macOsIcon) = LibraryView.LoadPlatformIcons();
         
         var platformBox = Box.New(Orientation.Horizontal, 6);
         platformBox.Halign = Align.Center;
-        platformBox.MarginStart = 16;
-        platformBox.MarginEnd = 16;
+        platformBox.MarginStart = 12;
+        platformBox.MarginEnd = 12;
         platformBox.Append(windowsIcon);
         platformBox.Append(linuxIcon);
         platformBox.Append(macOsIcon);
         
-        rowBox.Append(picture);
-        rowBox.Append(label);
+        var gameStateIcon = Image.New();
+        gameStateIcon.MarginStart = 16;
+        
+        var spinner = Adw.Spinner.New();
+        spinner.SetSizeRequest(16, 16);
+        
+        rowBox.Append(gameIcon);
+        rowBox.Append(gameTitleLabel);
+        rowBox.Append(playTimeLabel);
         rowBox.Append(platformBox);
         rowBox.Append(gameStateIcon);
         rowBox.Append(spinner);
@@ -86,73 +96,44 @@ public class ListLibraryView : IView
         try
         {
             var listItem = (ListItem)args.Object;
-            var game = (GameModel)listItem.Item!;
-            var rowBox = (Box)listItem.Child!;
-
+            
+            if (listItem.Item is not GameModel gameModel || listItem.Child is not Box rowBox)
+                return;
+            
             var picture = (Picture)rowBox.GetFirstChild()!;
             var label = (Label)picture.GetNextSibling()!;
-            var platformBox = (Box)label.GetNextSibling()!;
-        
+            var playtimeLabel = (Label)label.GetNextSibling()!;
+            var platformBox = (Box)playtimeLabel.GetNextSibling()!;
+            var gameStateIcon = (Image)platformBox.GetNextSibling()!;
+            var downloadingSpinner = (Adw.Spinner)gameStateIcon.GetNextSibling()!;
+            
             var windowsIcon = (Image)platformBox.GetFirstChild()!;
             var linuxIcon = (Image)windowsIcon.GetNextSibling()!;
             var macosIcon = (Image)linuxIcon.GetNextSibling()!;
-            var gameStateIcon = (Image)platformBox.GetNextSibling()!;
-            var downloadingSpinner = (Adw.Spinner)gameStateIcon.GetNextSibling()!;
 
-            windowsIcon.Visible = game.SystemCompatibility.Windows;
-            linuxIcon.Visible = game.SystemCompatibility.Linux;
-            macosIcon.Visible = game.SystemCompatibility.MacOs;
+            windowsIcon.Visible = gameModel.SystemCompatibility.Windows;
+            linuxIcon.Visible = gameModel.SystemCompatibility.Linux;
+            macosIcon.Visible = gameModel.SystemCompatibility.MacOs;
 
-            label.SetText(game.Title);
+            label.SetText(gameModel.Title);
+
+            var playStats = LibraryService.Instance.GetGamePlayStats(gameModel.Id);
+            var formattedTime = LibraryItemHelper.FormatShowPlayTime(playStats.TimePlayed);
+            playtimeLabel.SetText(formattedTime);
+            playtimeLabel.Visible = !string.IsNullOrEmpty(formattedTime);
             
-            var currentGameState = LibraryService.Instance.GetGameState(game.Id);
+            var currentGameState = LibraryService.Instance.GetGameState(gameModel.Id);
+            
+            LibraryItemHelper.ApplyGameState(
+                currentGameState,
+                rowBox,
+                picture,
+                gameStateIcon,
+                downloadingSpinner,
+                icon => gameStateIcon.IconName = icon
+            );
 
-            switch (currentGameState)
-            {
-                case EGameState.Downloading:
-                    picture.Opacity = 0.5;
-                    gameStateIcon.Visible = false;
-                    downloadingSpinner.Visible = true;
-                    rowBox.TooltipText = "Downloading Game...";
-                    break;
-                case EGameState.Downloaded:
-                    picture.Opacity = 0.8;
-                    gameStateIcon.Visible = true;
-                    gameStateIcon.IconName = "folder-download-symbolic";
-                    downloadingSpinner.Visible = false;
-                    rowBox.TooltipText = "Game is Downloaded, and ready to install.";
-                    break;
-                case EGameState.Installed:
-                    picture.Opacity = 1.0;
-                    gameStateIcon.Visible = false;
-                    downloadingSpinner.Visible = false;
-                    rowBox.TooltipText = "Game is Installed, and ready to play.";
-                    break;
-                case EGameState.Available:
-                default:
-                    picture.Opacity = 0.3;
-                    gameStateIcon.Visible = true;
-                    gameStateIcon.IconName = "cloud-symbolic";
-                    downloadingSpinner.Visible = false;
-                    rowBox.TooltipText = "Game is available for download.";
-                    break;
-            }
-
-            if (ImagePrefetchService.Instance.TryGetCachedImagePath(game.Id, EImageType.SidebarIcon2X, out var cachedPath))
-            {
-                picture.SetFilename(cachedPath);
-            }
-            else
-            {
-                picture.SetFile(null);
-                
-                var localImagePath = await ImagePrefetchService.Instance.FetchImageWithPriorityAsync(game.Id, EImageType.SidebarIcon2X, game.IconPath);
-
-                if (listItem.Item == game && File.Exists(localImagePath))
-                {
-                    picture.SetFilename(localImagePath);
-                }
-            }
+            await LibraryItemHelper.BindImageAsync(listItem, gameModel, picture, EImageType.SidebarIcon2X, gameModel.IconPath);
         }
         catch (Exception)
         {

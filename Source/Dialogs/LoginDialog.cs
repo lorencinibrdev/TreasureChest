@@ -15,6 +15,8 @@ public class LoginDialog
     
     public LoginDialog(Window parentWindow)
     {
+        WebKit.Module.Initialize();
+        
         _parentWindow = parentWindow;
         
         _modalDialog = Adw.Dialog.New();

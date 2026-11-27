@@ -11,6 +11,7 @@ using Application = Adw.Application;
 using ApplicationWindow = Adw.ApplicationWindow;
 using HeaderBar = Adw.HeaderBar;
 using PreferencesDialog = TreasureChest.Source.Dialogs.PreferencesDialog;
+using Spinner = Adw.Spinner;
 using Value = GObject.Value;
 
 namespace TreasureChest.Source;
@@ -24,6 +25,7 @@ public partial class MainWindow
     private ViewStack _mainAppViewStack = null!;
     private HeaderBar _mainHeaderBar = null!;
     private ToastOverlay _toastOverlay = null!;
+    private Spinner _backgroundSyncSpinner = null!;
     
     // The views we have:
     private LibraryView _libraryView = null!;
@@ -37,21 +39,15 @@ public partial class MainWindow
         window.Title = "Treasure Chest";
         window.SetDefaultSize(SettingsService.Instance.LastWindowWidth, SettingsService.Instance.LastWindowHeight);
         
-        Console.Out.WriteLine($"[INFO] - Is First Run? {SettingsService.Instance.IsFirstRun}");
         Console.Out.WriteLine($"[INFO] - Is User Logged In? {string.IsNullOrWhiteSpace(SettingsService.Instance.SavedUsername)} [{SettingsService.Instance.SavedUsername}]");
 
-        if (SettingsService.Instance.IsFirstRun)
+        if (string.IsNullOrWhiteSpace(SettingsService.Instance.SavedUsername))
         {
             window.SetRootState(EMainWindowViews.Welcome);
         }
-        else if (string.IsNullOrWhiteSpace(SettingsService.Instance.SavedUsername))
-        {
-            window.SetRootState(EMainWindowViews.Login);
-        }
         else
         {
-            window.SetRootState(EMainWindowViews.MainApp);
-            _ = window.ValidateSessionAsync();
+            _ = window.EnterMainAppAsync(isFreshLogin: false);
         }
         
         return window;
@@ -73,11 +69,11 @@ public partial class MainWindow
         _libraryView = new LibraryView(this);
         var userPage = Box.New(Orientation.Vertical, 0);
         
-        _mainAppViewStack.AddTitledWithIcon(explorePage, nameof(EMainWindowTabs.Explore).ToLower(), nameof(EMainWindowTabs.Explore), "explore-symbolic");
-        _mainAppViewStack.AddTitledWithIcon(_libraryView.RootWidget, nameof(EMainWindowTabs.Library).ToLower(), nameof(EMainWindowTabs.Library), "library-symbolic");
-        _mainAppViewStack.AddTitledWithIcon(userPage, nameof(EMainWindowTabs.User).ToLower(), nameof(EMainWindowTabs.User), "person-symbolic");
+        _mainAppViewStack.AddTitledWithIcon(explorePage, nameof(EMainWindowTabs.Explore).ToLowerInvariant(), nameof(EMainWindowTabs.Explore), "explore-symbolic");
+        _mainAppViewStack.AddTitledWithIcon(_libraryView.RootWidget, nameof(EMainWindowTabs.Library).ToLowerInvariant(), nameof(EMainWindowTabs.Library), "library-symbolic");
+        _mainAppViewStack.AddTitledWithIcon(userPage, nameof(EMainWindowTabs.User).ToLowerInvariant(), nameof(EMainWindowTabs.User), "person-symbolic");
 
-        var targetView = SettingsService.Instance.StartupDefaultView.ToString().ToLower();
+        var targetView = SettingsService.Instance.StartupDefaultView.ToString().ToLowerInvariant();
 
         if (_mainAppViewStack.GetChildByName(targetView) is not null)
         {
@@ -92,11 +88,9 @@ public partial class MainWindow
         mainAppBox.Append(_mainAppViewStack);
         
         // Create factory views with navigation callbacks
-        var firstRunPage = new FirstRunView(onGetStarted: () => SetRootState(EMainWindowViews.Login));
-        var loginPage = new LoginView(this);
+        var firstRunPage = new WelcomeView(this);
 
         _rootStack.AddNamed(firstRunPage.RootWidget, nameof(EMainWindowViews.Welcome));
-        _rootStack.AddNamed(loginPage.RootWidget, nameof(EMainWindowViews.Login));
         _rootStack.AddNamed(mainAppBox, nameof(EMainWindowViews.MainApp));
         
         // The overlay for showing toast notifications:
@@ -105,9 +99,38 @@ public partial class MainWindow
         SetContent(_toastOverlay);
     }
 
-    public void SetRootState(EMainWindowViews targetView)
+    public async Task EnterMainAppAsync(bool isFreshLogin)
     {
-        _rootStack.SetVisibleChildName(targetView.ToString());
+        SetRootState(EMainWindowViews.MainApp);
+
+        var isLibrary = _mainAppViewStack.VisibleChildName is not null &&
+                        _mainAppViewStack.VisibleChildName.Equals(nameof(EMainWindowTabs.Library), StringComparison.InvariantCultureIgnoreCase);
+        
+        _libraryView.SetSearchActive(isLibrary);
+
+        if (!isFreshLogin)
+        {
+            await LibraryService.Instance.LoadLibraryFromCacheAsync();
+
+            if (!await GogService.Instance.RestoreSessionAsync())
+            {
+                SetRootState(EMainWindowViews.Welcome);
+                ShowToastNotification("Session expired. Please log in again.");
+                return;
+            }
+        }
+
+        var hasCachedGames = !isFreshLogin && LibraryService.Instance.GamesCount > 0;
+        _backgroundSyncSpinner.Visible = hasCachedGames;
+
+        try
+        {
+            await GogService.Instance.RefreshGameList();
+        }
+        finally
+        {
+            _backgroundSyncSpinner.Visible = false;
+        }
     }
 
     private HeaderBar CreateHeaderBar(ViewStack targetViewStack)
@@ -149,7 +172,7 @@ public partial class MainWindow
         libraryControls.Visible = isLibraryInitiallyVisible;
         _libraryView.SetSearchActive(isLibraryInitiallyVisible);
 
-        targetViewStack.OnNotify += (sender, args) =>
+        targetViewStack.OnNotify += (_, args) =>
         {
             if (args.Pspec.GetName() != "visible-child-name")
                 return;
@@ -160,26 +183,16 @@ public partial class MainWindow
             _libraryView.SetSearchActive(isLibrary);
         };
         
+        // The background fetch loading spinner:
+        _backgroundSyncSpinner = Spinner.New();
+        _backgroundSyncSpinner.TooltipText = "Synchronizing library with GOG servers...";
+        _backgroundSyncSpinner.Visible = false;
+        
+        headerBar.PackStart(_backgroundSyncSpinner);
         headerBar.PackEnd(menuButton);
         headerBar.PackEnd(libraryControls);
 
         return headerBar;
-    }
-
-    private async Task ValidateSessionAsync()
-    {
-        var isSessionValid = await GogService.Instance.RestoreSessionAsync();
-
-        if (!isSessionValid)
-        {
-            SetRootState(EMainWindowViews.Login);
-        }
-        else
-        {
-            await Console.Out.WriteLineAsync("[INFO] - Session valid and correctly restored.");
-            await _libraryView.RefreshNetworkLibraryDataAsync();
-            await _libraryView.MergeAndUpdateLibrary(LibraryService.Instance.GetLoadedGames());
-        }
     }
     
     public void HandleApplicationExit(Gio.Application sender, EventArgs args)
@@ -187,7 +200,6 @@ public partial class MainWindow
         // Saving the configuration back to the service:
         SettingsService.Instance.LastWindowWidth = DefaultWidth;
         SettingsService.Instance.LastWindowHeight = DefaultHeight;
-        SettingsService.Instance.IsFirstRun = false;
     }
 
     public void ShowGameDetails(GameEntry game)
@@ -231,6 +243,11 @@ public partial class MainWindow
         {
             // Ignored
         }
+    }
+    
+    private void SetRootState(EMainWindowViews targetView)
+    {
+        _rootStack.SetVisibleChildName(targetView.ToString());
     }
     
     // Properties:
