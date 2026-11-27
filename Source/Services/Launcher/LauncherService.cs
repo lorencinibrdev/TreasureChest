@@ -4,6 +4,7 @@ using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Launcher.LaunchConfigs;
 using TreasureChest.Source.Services.Launcher.LaunchTasks;
 using TreasureChest.Source.Services.Library;
+using TreasureChest.Source.Services.Runners;
 
 namespace TreasureChest.Source.Services.Launcher;
 
@@ -14,12 +15,23 @@ public class LauncherService
         
     }
 
-    public static async Task<int> LaunchGameAsync(GameEntry gameEntry, CancellationToken cancellationToken)
+    public static async Task<int> LaunchGameAsync(GameEntry gameEntry, CancellationToken cancellationToken, Func<ERunnerType, Task<bool>>? onMissingRunner = null)
     {
         if (!LaunchConfigurationService.Instance.TryGetPrimaryTaskConfig(gameEntry.Slug, out var launchConfiguration))
         {
             await Console.Out.WriteLineAsync($"[ERROR] - Failed to fetch the Primary Task for the requested game: {gameEntry.Slug}", cancellationToken);
             return -1;
+        }
+
+        var runnerInformation = RunnerManagerService.GetRunnerInformation(launchConfiguration.RunnerType);
+
+        if (string.IsNullOrWhiteSpace(runnerInformation.ExecutablePath) && runnerInformation.Type != ERunnerType.Native)
+        {
+            if (onMissingRunner is null || !await onMissingRunner(launchConfiguration.RunnerType))
+            {
+                await Console.Out.WriteLineAsync($"$[ERROR] - Launch aborted: Missing runner type '{launchConfiguration.RunnerType}' for '{gameEntry.Slug}'", cancellationToken);
+                return -1;
+            }
         }
         
         // Creating the actual run task with he fetched configuration:

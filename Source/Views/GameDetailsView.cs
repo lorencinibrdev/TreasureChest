@@ -10,7 +10,9 @@ using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
 using TreasureChest.Source.Services.Library.Records;
+using TreasureChest.Source.Services.Runners;
 using TreasureChest.Source.Views.Library;
+using Spinner = Adw.Spinner;
 
 namespace TreasureChest.Source.Views;
 
@@ -383,9 +385,38 @@ public partial class GameDetailsView : IView
             playSplitButton.AddCssClass("pill");
             playSplitButton.Popover = installedGameOptionsPopover;
             
-            playSplitButton.OnClicked += (_, _) =>
+            playSplitButton.OnClicked += async (_, _) =>
             {
-                _ = LauncherService.LaunchGameAsync(_game, CancellationToken.None);
+                await LauncherService.LaunchGameAsync(
+                    gameEntry: _game,
+                    CancellationToken.None,
+                    onMissingRunner: async runnerType =>
+                    {
+                        var shouldDownload = await MissingRunnerDialog.ShowAsync(_parentWindow, _game, runnerType);
+
+                        if (!shouldDownload)
+                            return false;
+                        
+                        _mainButtonStack.SetVisibleChildName("runner-setup");
+
+                        try
+                        {
+                            var downloadUrl = RunnerManagerService.GetDownloadUrlForRunner(runnerType);
+                            var installed =  await RunnerManagerService.Instance.InstallRunnerAsync(runnerType, downloadUrl);
+
+                            if (!installed)
+                            {
+                                _parentWindow.ShowToastNotification($"Failed to install {runnerType} runner.");
+                            }
+
+                            return installed;
+                        }
+                        finally
+                        {
+                            _mainButtonStack.SetVisibleChildName(nameof(EGameState.Installed));
+                        }
+                    }
+                );
             };
 
             _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
@@ -513,6 +544,26 @@ public partial class GameDetailsView : IView
             uninstallProgressBar.Vexpand = false;
 
             _mainButtonStack.AddNamed(uninstallProgressBar, nameof(EGameState.Uninstalling));
+        }
+        
+        // Checking for the setting up the runners:
+        if (_mainButtonStack.GetChildByName("runner-setup") is null)
+        {
+            var spinner = Spinner.New();
+            var statusLabel = Label.New("Preparing Runner...");
+            statusLabel.AddCssClass("numeric");
+            
+            var statusBox = Box.New(Orientation.Horizontal, 8);
+            statusBox.Halign = Align.Center;
+            statusBox.Append(spinner);
+            statusBox.Append(statusLabel);
+
+            var busyButton = Button.New();
+            busyButton.Child = statusBox;
+            busyButton.Sensitive = false;
+            busyButton.AddCssClass("pill");
+
+            _mainButtonStack.AddNamed(busyButton, "runner-setup");
         }
         
         _mainButtonStack.SetVisibleChildName(currentGameState.ToString());
