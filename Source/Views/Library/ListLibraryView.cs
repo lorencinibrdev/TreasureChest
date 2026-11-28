@@ -12,6 +12,7 @@ public class ListLibraryView : IView
         var listFactory = SignalListItemFactory.New();
         listFactory.OnSetup += (sender, args) =>  OnListFactorySetup(sender, args, parent);
         listFactory.OnBind += OnListFactoryBind;
+        listFactory.OnUnbind += OnListFactoryUnbind;
 
         var listView = ListView.New(selectionModel, listFactory);
         listView.ShowSeparators = true;
@@ -139,6 +140,14 @@ public class ListLibraryView : IView
         {
             // ignored
         }
+    }
+    
+    private static void OnListFactoryUnbind(SignalListItemFactory sender, SignalListItemFactory.UnbindSignalArgs args)
+    {
+        if (args.Object is not ListItem listItem) 
+            return;
+        
+        LibraryItemHelper.UnbindState(listItem);
     }
     
     // Properties:

@@ -177,11 +177,7 @@ public class LibraryView : IView
                 if (model.Id != gameId) 
                     continue;
 
-                if (LibraryService.Instance.TryGetGameEntry(gameId, out var gameEntry))
-                {
-                    var newModel = GameModel.New(gameEntry);
-                    _store.Splice(i, 1, [newModel], 1);
-                }
+                model.NotifyStateChanged();
                 
                 break;
             }
@@ -201,12 +197,7 @@ public class LibraryView : IView
                 if (model.Id != gameId) 
                     continue;
 
-                if (LibraryService.Instance.TryGetGameEntry(gameId, out var gameEntry))
-                {
-                    var newModel = GameModel.New(gameEntry);
-                    _store.Splice(i, 1, [newModel], 1);
-                }
-                
+                model.UpdatePlayStats(playTimeStats);
                 break;
             }
 

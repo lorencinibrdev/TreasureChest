@@ -1,11 +1,59 @@
 using Gtk;
 using TreasureChest.Source.Helpers;
 using TreasureChest.Source.Services.GOG;
+using TreasureChest.Source.Services.Library;
 
 namespace TreasureChest.Source.Views.Library;
 
 public static class LibraryItemHelper
 {
+    // Private Members:
+    private static readonly Dictionary<IntPtr, (GameModel Model, Action Handler)> StateSubscriptions = [];
+
+    public static void BindState(
+        ListItem listItem,
+        GameModel gameModel,
+        Widget targetContainer,
+        Picture picture,
+        Widget stateIndicator,
+        Adw.Spinner spinner,
+        Action<string>? setIconName = null,
+        Label? playtimeLabel = null
+    )
+    {
+        UnbindState(listItem);
+
+        Update();
+        gameModel.Changed += Update;
+        StateSubscriptions[listItem.Handle.DangerousGetHandle()] = (gameModel, Update);
+        
+        return;
+
+        void Update()
+        {
+            var currentGameState = LibraryService.Instance.GetGameState(gameModel.Id);
+            ApplyGameState(currentGameState, targetContainer, picture, stateIndicator, spinner, setIconName);
+
+            if (playtimeLabel is null) 
+                return;
+            
+            var playStas = LibraryService.Instance.GetGamePlayStats(gameModel.Id);
+            var formattedTime = FormatShowPlayTime(playStas.TimePlayed);
+            playtimeLabel.SetText(formattedTime);
+            playtimeLabel.Visible = !string.IsNullOrEmpty(formattedTime);
+        }
+    }
+
+    public static void UnbindState(ListItem listItem)
+    {
+        var handle = listItem.Handle.DangerousGetHandle();
+
+        if (StateSubscriptions.Remove(handle, out var subscription))
+        {
+            subscription.Model.Changed -= subscription.Handler;
+        }
+    }
+    
     public static void ApplyGameState(
         EGameState gameState,
         Widget targetContainer,
@@ -86,6 +134,6 @@ public static class LibraryItemHelper
         if (timePlayed.TotalHours < 1)
             return $"{(int)timePlayed.TotalMinutes}m";
         
-        return $"{(int)timePlayed.TotalHours:F1}h";
+        return $"{timePlayed.TotalHours:F1}h";
     }
 }

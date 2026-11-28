@@ -1,5 +1,6 @@
 using GObject;
 using TreasureChest.Source.Services.Library;
+using TreasureChest.Source.Services.Library.Records;
 using Object = GObject.Object;
 
 namespace TreasureChest.Source.Helpers;
@@ -32,6 +33,15 @@ public partial class GameModel
         return model;
     }
     
+    public void NotifyStateChanged() => Changed?.Invoke();
+
+    public void UpdatePlayStats(GamePlayStats stats)
+    {
+        TimePlayed = stats.TimePlayed;
+        LastPlayedDate = stats.LastPlayedDate;
+        Changed?.Invoke();
+    }
+    
     // Properties:
     public long Id { get; private set; }
     public string Slug { get; private set; } = string.Empty;
@@ -41,4 +51,7 @@ public partial class GameModel
     public SystemCompatibility SystemCompatibility { get; private set; }
     public TimeSpan TimePlayed { get; set; } = TimeSpan.Zero;
     public DateTimeOffset? LastPlayedDate { get; set; }
+    
+    // Events:
+    public event Action? Changed;
 }

@@ -124,6 +124,14 @@ public class GridCompactLibraryView : IView
             // ignored
         }
     }
+    
+    private static void OnGridFactoryUnbind(SignalListItemFactory sender, SignalListItemFactory.UnbindSignalArgs args)
+    {
+        if (args.Object is not ListItem listItem) 
+            return;
+        
+        LibraryItemHelper.UnbindState(listItem);
+    }
 
     // Properties:
     public string Identifier => "GridCompactView";

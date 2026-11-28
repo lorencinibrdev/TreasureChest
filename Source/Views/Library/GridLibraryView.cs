@@ -13,6 +13,7 @@ public class GridLibraryView : IView
         var gridFactory = SignalListItemFactory.New();
         gridFactory.OnSetup += (sender, args) => OnGridFactorySetup(sender, args, parent);
         gridFactory.OnBind += OnGridFactoryBind;
+        gridFactory.OnUnbind += OnGridFactoryUnbind;
 
         var gridView = GridView.New(selectionModel, gridFactory);
         gridView.MinColumns = 2;
@@ -146,6 +147,14 @@ public class GridLibraryView : IView
         {
             // ignored
         }
+    }
+    
+    private static void OnGridFactoryUnbind(SignalListItemFactory sender, SignalListItemFactory.UnbindSignalArgs args)
+    {
+        if (args.Object is not ListItem listItem) 
+            return;
+        
+        LibraryItemHelper.UnbindState(listItem);
     }
 
     // Properties:
