@@ -5,6 +5,7 @@ using TreasureChest.Source.Services.Downloads;
 using TreasureChest.Source.Services.Install;
 using TreasureChest.Source.Services.Launcher;
 using TreasureChest.Source.Services.Library;
+using TreasureChest.Source.Services.Runners;
 
 namespace TreasureChest.Source.Views.Library;
 
@@ -86,8 +87,8 @@ public static class GameContextMenuHelper
                 {
                     if (!LibraryService.Instance.TryGetGameEntry(gameModel.Id, out var gameEntry))
                         return;
-                    
-                    _ = LauncherService.LaunchGameAsync(gameEntry, CancellationToken.None);
+
+                    _ = LaunchWithRunnerCheckAsync(libraryView.ParentWindow, gameEntry);
                 });
                 AddAction(primarySection, actionGroup, "Launch Parameters...", "launch-params", () => { });
                 break;
@@ -128,6 +129,14 @@ public static class GameContextMenuHelper
                 }
             });
         }
+
+        if (LauncherService.Instance.TryGetLastLogPath(gameModel.Id, out _))
+        {
+            AddAction(manageSection, actionGroup, "Open Last Execution Log", "open-log", () =>
+            {
+                GameDetailsView.OpenLogFile(gameModel.Id);
+            });
+        }
         
         if (gameState is EGameState.Installed)
         {
@@ -149,6 +158,48 @@ public static class GameContextMenuHelper
         
         targetWidget.InsertActionGroup("game", actionGroup);
         return rootMenu;
+    }
+    
+    private static async Task LaunchWithRunnerCheckAsync(MainWindow parentWindow, GameEntry gameEntry)
+    {
+        try
+        {
+            var exitCode = await LauncherService.Instance.LaunchGameAsync(
+                gameEntry: gameEntry,
+                CancellationToken.None,
+                onMissingRunner: async runnerType =>
+                {
+                    var shouldDownload = await MissingRunnerDialog.ShowAsync(parentWindow, gameEntry, runnerType);
+
+                    if (!shouldDownload)
+                        return false;
+
+                    parentWindow.ShowToastNotification($"Downloading {runnerType} runner...");
+
+                    var downloadUrl = RunnerManagerService.GetDownloadUrlForRunner(runnerType);
+                    var installed = await RunnerManagerService.Instance.InstallRunnerAsync(runnerType, downloadUrl);
+
+                    if (!installed)
+                    {
+                        parentWindow.ShowToastNotification($"Failed to install {runnerType} runner.");
+                    }
+
+                    return installed;
+                });
+
+            if (exitCode != 0 && LauncherService.Instance.TryGetLastLogPath(gameEntry.Id, out _))
+            {
+                var toast = Adw.Toast.New($"{gameEntry.Title.EscapeMarkup()} exited with code {exitCode}");
+                toast.ButtonLabel = "Open Log";
+                toast.Timeout = 6;
+                toast.OnButtonClicked += (_, _) => GameDetailsView.OpenLogFile(gameEntry.Id);
+                parentWindow.ShowToastNotification(toast);
+            }
+        }
+        catch (Exception e)
+        {
+            await Console.Out.WriteLineAsync($"[ERROR] - Failed to launch {gameEntry.Slug}: {e.Message}");
+        }
     }
 
     private static void AddAction(Gio.Menu menu, Gio.SimpleActionGroup actionGroup, string label, string actionName, Action callback)

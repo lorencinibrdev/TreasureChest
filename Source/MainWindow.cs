@@ -220,6 +220,11 @@ public partial class MainWindow
         _toastOverlay.AddToast(toast);
     }
     
+    public void ShowToastNotification(Toast toast)
+    {
+        _toastOverlay.AddToast(toast);
+    }
+    
     public async void NavigateBackToLibrary()
     {
         try

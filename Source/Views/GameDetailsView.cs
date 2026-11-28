@@ -375,8 +375,13 @@ public partial class GameDetailsView : IView
                 modal.Present();
             };
             
+            var openLogButton = Button.NewWithLabel("Open Last Execution Log");
+            openLogButton.Sensitive = LauncherService.Instance.TryGetLastLogPath(_game.Id, out _);
+            openLogButton.OnClicked += (_, _) => OpenLogFile(_game.Id);
+            
             installedGameOptionsBox.Append(uninstallButton);
             installedGameOptionsBox.Append(configureLaunchParametersButton);
+            installedGameOptionsBox.Append(openLogButton);
             
             // The button:
             var playSplitButton = SplitButton.New();
@@ -384,25 +389,27 @@ public partial class GameDetailsView : IView
             playSplitButton.AddCssClass("suggested-action");
             playSplitButton.AddCssClass("pill");
             playSplitButton.Popover = installedGameOptionsPopover;
-            
-            playSplitButton.OnClicked += async (_, _) =>
+
+            playSplitButton.OnClicked += OnPlaySplitButtonOnOnClicked;
+
+            _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
+
+            async void OnPlaySplitButtonOnOnClicked(SplitButton splitButton, EventArgs eventArgs)
             {
-                await LauncherService.LaunchGameAsync(
-                    gameEntry: _game,
-                    CancellationToken.None,
-                    onMissingRunner: async runnerType =>
+                try
+                {
+                    var exitCode = await LauncherService.Instance.LaunchGameAsync(gameEntry: _game, CancellationToken.None, onMissingRunner: async runnerType =>
                     {
                         var shouldDownload = await MissingRunnerDialog.ShowAsync(_parentWindow, _game, runnerType);
 
-                        if (!shouldDownload)
-                            return false;
-                        
+                        if (!shouldDownload) return false;
+
                         _mainButtonStack.SetVisibleChildName("runner-setup");
 
                         try
                         {
                             var downloadUrl = RunnerManagerService.GetDownloadUrlForRunner(runnerType);
-                            var installed =  await RunnerManagerService.Instance.InstallRunnerAsync(runnerType, downloadUrl);
+                            var installed = await RunnerManagerService.Instance.InstallRunnerAsync(runnerType, downloadUrl);
 
                             if (!installed)
                             {
@@ -415,11 +422,24 @@ public partial class GameDetailsView : IView
                         {
                             _mainButtonStack.SetVisibleChildName(nameof(EGameState.Installed));
                         }
-                    }
-                );
-            };
+                    });
 
-            _mainButtonStack.AddNamed(playSplitButton, nameof(EGameState.Installed));
+                    var hasLog = LauncherService.Instance.TryGetLastLogPath(_game.Id, out _);
+                    openLogButton.Sensitive = hasLog;
+
+                    if (exitCode == 0 || !hasLog) return;
+
+                    var toast = Toast.New($"{_game.Title.EscapeMarkup()} exited with code {exitCode}");
+                    toast.ButtonLabel = "Open Log File";
+                    toast.Timeout = 6;
+                    toast.OnButtonClicked += (_, _) => OpenLogFile(_game.Id);
+                    _parentWindow.ShowToastNotification(toast);
+                }
+                catch (Exception e)
+                {
+                    await Console.Out.WriteLineAsync($"[ERROR] - Failed to launch {_game.Slug}: {e.Message}");
+                }
+            }
         }
         
         // Now, checking for the available state:
@@ -922,6 +942,15 @@ public partial class GameDetailsView : IView
         text = UnescapedAmpersand().Replace(text, "&amp;");
 
         return text.Trim();
+    }
+
+    public static void OpenLogFile(long gameId)
+    {
+        if (!LauncherService.Instance.TryGetLastLogPath(gameId, out var logPath))
+            return;
+
+        var fileUri = new Uri(logPath).AbsoluteUri;
+        Gio.Functions.AppInfoLaunchDefaultForUri(fileUri, null);
     }
     
     // Properties:
